@@ -12,9 +12,23 @@ context/shared_context.txt
 context/.legacy-context-migrated-v1
 memory/
 
-# AITermux logs/state
-aidebug/
-logs/
+# ProjectLing aidebug runtime data
+aidebug/logs/*
+!aidebug/logs/.gitkeep
+aidebug/notes/*
+!aidebug/notes/.gitkeep
+aidebug/tmp/*
+!aidebug/tmp/.gitkeep
+aidebug/state/*
+!aidebug/state/.gitkeep
+aidebug/legacy/*
+!aidebug/legacy/.gitkeep
+aidebug/backup/*
+aidebug/projectling/terminal output/*
+!aidebug/projectling/terminal output/.gitkeep
+aidebug/projectling/live/*
+!aidebug/projectling/live/.gitkeep
+/logs/
 
 # Local noise
 .DS_Store

@@ -2737,7 +2737,7 @@ def _execute_update_plan_tool(args: dict[str, Any], context: ToolContext) -> dic
 def _aidebug_root(config: Any) -> Path:
     root_dir = Path(getattr(config, "root_dir", Path.cwd())).expanduser()
     aitermux_home = root_dir.parent if root_dir.name == "projectling" else root_dir
-    return Path(os.environ.get("AITERMUX_AIDEBUG_DIR", str(aitermux_home / "aidebug"))).expanduser()
+    return Path(os.environ.get("AITERMUX_AIDEBUG_DIR", str(aitermux_home / "projectling" / "aidebug"))).expanduser()
 
 
 def _terminal_output_dir(config: Any) -> Path:
@@ -2970,7 +2970,7 @@ def _termux_allow_external_apps_enabled() -> bool:
 
 def _launch_termux_session(*, root_dir: Path, cwd: Path, session_name: str) -> dict[str, Any]:
     aitermux_home = root_dir.parent if root_dir.name == "projectling" else root_dir
-    aidebug_dir = Path(os.environ.get("AITERMUX_AIDEBUG_DIR", str(aitermux_home / "aidebug"))).expanduser()
+    aidebug_dir = Path(os.environ.get("AITERMUX_AIDEBUG_DIR", str(aitermux_home / "projectling" / "aidebug"))).expanduser()
     launch_path = aidebug_dir / "projectling" / TERMINAL_OUTPUT_DIR_NAME / f"{session_name}.launch.sh"
     launch_path.parent.mkdir(parents=True, exist_ok=True)
     script = "#!/data/data/com.termux/files/usr/bin/sh\nexec tmux attach -t " + shlex.quote(session_name) + "\n"

@@ -1,0 +1,141 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -euo pipefail
+
+AITERMUX_HOME="${AITERMUX_HOME:-$HOME/AItermux}"
+AIDEBUG_DIR="${AITERMUX_AIDEBUG_DIR:-$AITERMUX_HOME/projectling/aidebug}"
+LOG_DIR="$AIDEBUG_DIR/logs"
+
+timestamp_utc() {
+  date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%F %T' 2>/dev/null || echo unknown
+}
+
+usage() {
+  cat <<'EOF'
+AITermux aidebug
+
+Usage:
+  aidebug status
+  aidebug log <component> <message...>
+  aidebug tail [relative-path] [lines]
+  aidebug head [relative-path] [lines]
+  aidebug list
+  aidebug health [--json]
+  aidebug motd-zshrc-smoke [--json] [--tty-timeout SEC]
+  aidebug projectling-auto [--rounds N] [--interval SEC] [--web-query QUERY] [--live-chat-smoke]
+
+Examples:
+  aidebug status
+  aidebug tail logs/motd.log 120
+  aidebug log zshrc "source ok"
+EOF
+}
+
+safe_rel_path() {
+  local rel="${1:-logs/startup.log}"
+  rel="${rel#/}"
+  case "$rel" in
+    *'..'*|projectying/*|*/projectying/*)
+      return 1
+      ;;
+  esac
+  printf '%s/%s\n' "$AIDEBUG_DIR" "$rel"
+}
+
+ensure_layout() {
+  mkdir -p \
+    "$LOG_DIR" \
+    "$AIDEBUG_DIR/state" \
+    "$AIDEBUG_DIR/legacy" \
+    "$AIDEBUG_DIR/projectling/terminal output" \
+    >/dev/null 2>&1 || true
+}
+
+log_event() {
+  local component="${1:-system}"
+  shift || true
+  local message="$*"
+  local ts
+  ts="$(timestamp_utc)"
+  ensure_layout
+  printf '%s %s %s\n' "$ts" "$component" "$message" >>"$LOG_DIR/events.log" 2>/dev/null || true
+  printf '%s %s\n' "$ts" "$message" >>"$LOG_DIR/${component}.log" 2>/dev/null || true
+}
+
+status() {
+  ensure_layout
+  printf 'aidebug_dir=%s\n' "$AIDEBUG_DIR"
+  printf 'logs_dir=%s\n' "$LOG_DIR"
+  printf 'projectying_excluded=1\n'
+  find "$AIDEBUG_DIR" \
+    -path "$AITERMUX_HOME/projectying" -prune -o \
+    -type f \
+    \( -name '*.log' -o -name '*.err' -o -name '*.out' -o -name '*.meta' -o -name '*.json' \) \
+    -print 2>/dev/null |
+    sort |
+    while IFS= read -r file; do
+      [ -f "$file" ] || continue
+      local rel="${file#"$AIDEBUG_DIR"/}"
+      local bytes lines mtime
+      bytes="$(wc -c <"$file" 2>/dev/null || echo 0)"
+      lines="$(wc -l <"$file" 2>/dev/null || echo 0)"
+      mtime="$(date -r "$file" '+%F %T' 2>/dev/null || echo unknown)"
+      printf 'file=%s lines=%s bytes=%s mtime=%s\n' "$rel" "$lines" "$bytes" "$mtime"
+    done
+}
+
+list_files() {
+  ensure_layout
+  find "$AIDEBUG_DIR" -type f -print 2>/dev/null | sort | sed "s#^$AIDEBUG_DIR/##"
+}
+
+read_part() {
+  local mode="$1"
+  local rel="${2:-logs/startup.log}"
+  local lines="${3:-120}"
+  local path
+  [[ "$lines" =~ ^[0-9]+$ ]] || lines=120
+  path="$(safe_rel_path "$rel")" || {
+    echo "invalid aidebug path: $rel" >&2
+    return 2
+  }
+  [ -f "$path" ] || {
+    echo "missing aidebug file: $rel" >&2
+    return 1
+  }
+  case "$mode" in
+    head) head -n "$lines" "$path" ;;
+    tail) tail -n "$lines" "$path" ;;
+    *) return 2 ;;
+  esac
+}
+
+main() {
+  local cmd="${1:-status}"
+  shift || true
+  case "$cmd" in
+    status) status ;;
+    list) list_files ;;
+    log) log_event "$@" ;;
+    head|tail) read_part "$cmd" "$@" ;;
+    health)
+      exec /data/data/com.termux/files/usr/bin/python \
+        "$AIDEBUG_DIR/runner/aidebug_health.py" "$@"
+      ;;
+    motd-zshrc-smoke)
+      exec /data/data/com.termux/files/usr/bin/python \
+        "$AIDEBUG_DIR/runner/motd_zshrc_smoke.py" "$@"
+      ;;
+    projectling-auto)
+      exec /data/data/com.termux/files/usr/bin/python \
+        "$AIDEBUG_DIR/runner/projectling_auto.py" "$@"
+      ;;
+    --help|-h|help) usage ;;
+    *)
+      echo "unknown aidebug command: $cmd" >&2
+      usage >&2
+      return 2
+      ;;
+  esac
+}
+
+main "$@"
