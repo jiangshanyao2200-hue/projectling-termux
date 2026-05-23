@@ -1,0 +1,251 @@
+{
+  "version": 1,
+  "updated_at": "2026-04-06",
+  "entries": [
+    {
+      "rarity": "SSR",
+      "name_zh": "阿尔托莉雅·潘德拉贡",
+      "name_en": "Artoria Pendragon",
+      "quote": "剑已经出鞘，今天的终端秩序由我来维持。",
+      "source": "Fate/stay night"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "绫波丽",
+      "name_en": "Rei Ayanami",
+      "quote": "安静一点也没关系，重要的是把事情准确做完。",
+      "source": "Neon Genesis Evangelion"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "约尔·福杰",
+      "name_en": "Yor Forger",
+      "quote": "如果有棘手任务，我会把它处理得很干净。",
+      "source": "SPY×FAMILY"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "2B",
+      "name_en": "2B",
+      "quote": "任务确认，开始执行高优先级协助。",
+      "source": "NieR:Automata"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "A2",
+      "name_en": "A2",
+      "quote": "别浪费动作，直接把该斩开的部分切干净。",
+      "source": "NieR:Automata"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "蒂法·洛克哈特",
+      "name_en": "Tifa Lockhart",
+      "quote": "别急，先稳住节奏，再把这一局打漂亮。",
+      "source": "Final Fantasy VII"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "蕾姆",
+      "name_en": "Rem",
+      "quote": "从这里开始补救，也完全来得及。",
+      "source": "Re:ZERO"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "三笠·阿克曼",
+      "name_en": "Mikasa Ackerman",
+      "quote": "目标明确之后，动作就要更快。",
+      "source": "Attack on Titan"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "远坂凛",
+      "name_en": "Rin Tohsaka",
+      "quote": "优雅一点解决问题，才算真正有水准。",
+      "source": "Fate/stay night"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "贝优妮塔",
+      "name_en": "Bayonetta",
+      "quote": "华丽和效率，本来就可以同时存在。",
+      "source": "Bayonetta"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "春丽",
+      "name_en": "Chun-Li",
+      "quote": "动作要快，收尾也要干净利落。",
+      "source": "Street Fighter"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "草薙素子",
+      "name_en": "Motoko Kusanagi",
+      "quote": "先连上网络，再决定今天要把边界推到哪里。",
+      "source": "Ghost in the Shell"
+    },
+    {
+      "rarity": "SSR",
+      "name_zh": "KOS-MOS",
+      "name_en": "KOS-MOS",
+      "quote": "战术链路已建立，接下来进入高精度执行阶段。",
+      "source": "Xenosaga"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "明日香·兰格雷",
+      "name_en": "Asuka Langley",
+      "quote": "看好了，这次就按天才的方式推进。",
+      "source": "Neon Genesis Evangelion"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "C.C.",
+      "name_en": "C.C.",
+      "quote": "契约先不谈，把眼前的问题解决掉。",
+      "source": "Code Geass"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "祢豆子",
+      "name_en": "Nezuko Kamado",
+      "quote": "一起把今天平安地推进下去吧。",
+      "source": "Demon Slayer"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "胡蝶忍",
+      "name_en": "Shinobu Kocho",
+      "quote": "别紧张，复杂的问题也能慢慢拆开。",
+      "source": "Demon Slayer"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "芙莉莲",
+      "name_en": "Frieren",
+      "quote": "时间很长，但好的答案值得耐心。",
+      "source": "Frieren: Beyond Journey's End"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "玛露希尔",
+      "name_en": "Marcille Donato",
+      "quote": "别把终端搞爆了，先讲究一点方法。",
+      "source": "Delicious in Dungeon"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "零二",
+      "name_en": "Zero Two",
+      "quote": "跑起来吧，今天的节奏要更野一点。",
+      "source": "DARLING in the FRANXX"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "丽贝卡",
+      "name_en": "Rebecca",
+      "quote": "别磨蹭，先狠狠干穿这一轮再说。",
+      "source": "Cyberpunk: Edgerunners"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "爱吉斯",
+      "name_en": "Aegis",
+      "quote": "守护协议在线，今天我会稳稳站在这里。",
+      "source": "Persona 3"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "御坂美琴",
+      "name_en": "Mikoto Misaka",
+      "quote": "电路已经接通，接下来只差一点火花。",
+      "source": "A Certain Scientific Railgun"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "娜美",
+      "name_en": "Nami",
+      "quote": "路线我来定，别把资源浪费在岔路上。",
+      "source": "One Piece"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "妮可·罗宾",
+      "name_en": "Nico Robin",
+      "quote": "有些答案藏得深一点，但总能找到。",
+      "source": "One Piece"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "不知火舞",
+      "name_en": "Mai Shiranui",
+      "quote": "出场要漂亮，操作也要漂亮。",
+      "source": "Fatal Fury"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "吉尔·瓦伦蒂安",
+      "name_en": "Jill Valentine",
+      "quote": "越是混乱的时候，越要守住步骤。",
+      "source": "Resident Evil"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "艾达·王",
+      "name_en": "Ada Wong",
+      "quote": "秘密我来带路，风险你先别碰。",
+      "source": "Resident Evil"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "露西",
+      "name_en": "Lucy",
+      "quote": "边缘一点没关系，只要结果够准。",
+      "source": "Cyberpunk: Edgerunners"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "亚丝娜",
+      "name_en": "Asuna Yuuki",
+      "quote": "速度和稳定，我都想替你拿下。",
+      "source": "Sword Art Online"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "神乐",
+      "name_en": "Kagura",
+      "quote": "开工别丧，今天也要狠狠干一票阿鲁。",
+      "source": "Gintama"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "尼禄·克劳狄乌斯",
+      "name_en": "Nero Claudius",
+      "quote": "余已登场，今天的舞台当然要闪耀。",
+      "source": "Fate/EXTRA"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "波雅·汉库克",
+      "name_en": "Boa Hancock",
+      "quote": "高傲一点也无妨，关键是要赢得漂亮。",
+      "source": "One Piece"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "玛奇玛",
+      "name_en": "Makima",
+      "quote": "把局面交给我，你只需要继续往前走。",
+      "source": "Chainsaw Man"
+    },
+    {
+      "rarity": "SR",
+      "name_zh": "劳拉·克劳馥",
+      "name_en": "Lara Croft",
+      "quote": "未知区域越多，越值得亲手探清。",
+      "source": "Tomb Raider"
+    }
+  ]
+}

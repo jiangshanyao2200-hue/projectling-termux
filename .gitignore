@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+
+# Local runtime state
+config/env
+config/role.json
+config/context-budget.json
+config/update-plan.json
+context/entries.jsonl
+context/entries.jsonl.lock
+context/shared_context.txt
+context/.legacy-context-migrated-v1
+memory/
+
+# AITermux logs/state
+aidebug/
+logs/
+
+# Local noise
+.DS_Store
+Thumbs.db

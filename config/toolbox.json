@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-23T19:04:53Z",
+  "tools": {
+    "aidebug": {
+      "expanded": true,
+      "summary": "Inspect or write AITermux aidebug diagnostics",
+      "detail": "Inspect or write AITermux aidebug diagnostics. Use action=status to list motd/zshrc/bootstrap/projectling logs and metadata, action=health to score each runtime/debug chain, action=read to read a bounded head/tail/slice from an aidebug file, and action=event to append a diagnostic note. projectying is excluded because it has its own Aidebug chain.",
+      "pinned": false
+    },
+    "apply_patch": {
+      "expanded": true,
+      "summary": "Create or edit files in the current working directory",
+      "detail": "Create or edit files in the current working directory. DeepSeek should prefer the structured form: operation + target_file + content/find/replace, or edits[] for multiple small operations. Use operation=write for full-file create/replace, operation=replace for exact text replacement, append/prepend/insert_before/insert_after for simple insertions, and delete for text or file deletion. Unified diff and *** Begin Patch remain available for advanced exact-context patches. Use this for code edits instead of shell heredocs, python writes, sed -i, tee, or ad-hoc file rewriting.",
+      "pinned": false
+    },
+    "command": {
+      "expanded": true,
+      "summary": "Run one local shell command in the current Termux working directory",
+      "detail": "Run one local shell command in the current Termux working directory. Supports shell commands, adb TCP workflows, and termux-api commands. Commands usually run immediately and return bounded stdout/stderr. Clearly catastrophic commands create a pending confirmation and require the human to type yes before execution; blocked commands are not executed.",
+      "pinned": false
+    },
+    "compact_context": {
+      "expanded": true,
+      "summary": "Compact the current role's external persona context into a durable summary",
+      "detail": "Compact the current role's external persona context into a durable summary. Use only when explicitly asked by the system during context maintenance.",
+      "pinned": false
+    },
+    "context": {
+      "expanded": false,
+      "summary": "Set the smart context budget for the next model request",
+      "detail": "Set the smart context budget for the next model request. Use a percent from 0 to 100 to control how much of the shared entries context is returned next round: lower values save tokens for simple checks, higher values restore more memory for cross-file or long-running work. Low visibility is not memory loss: hidden context remains stored and can be restored later with a higher percent, including 100. This does not rewrite memory; contextmanage handles entry-id replacement and folding.",
+      "pinned": false
+    },
+    "context_manage": {
+      "expanded": false,
+      "summary": "Manage projectling's shared entries context when the system says context is large",
+      "detail": "Manage projectling's shared entries context when the system says context is large. mode=status/list inspects entries, mode=replace replaces an entry id or id range with a compact summary, mode=fold folds old tool entries. Legacy mode=full/half/fold_tools is rejected because persona txt is no longer the active context store. Use target=both by default. target=role or target=persona points at the active persona board; legacy shared/public/dualstar aliases are accepted for compatibility but no longer represent separate shared memory. target=liaison can still be used only when a separate liaison role path is explicitly available in the current session.",
+      "pinned": false
+    },
+    "contextmanage": {
+      "expanded": true,
+      "summary": "New ProjectLing context governance entry",
+      "detail": "New ProjectLing context governance entry. Use it for entry-id status/list/replace/fold flows; legacy full/half/fold_tools compaction is rejected.",
+      "pinned": false
+    },
+    "link": {
+      "expanded": true,
+      "summary": "X-Link role collaboration tool",
+      "detail": "X-Link role collaboration tool. Use action=continue when the planner has produced a plan and hands it to the executor, action=done when the executor reports completion, action=blocked when execution needs planner/user judgment, and action=review when planner reviews executor output. Compatibility actions switch/liaison/mission/send/contact are accepted during migration.",
+      "pinned": false
+    },
+    "memory_add": {
+      "expanded": true,
+      "summary": "Write or append a permanent diary memory into projectling/memory/memory",
+      "detail": "Write or append a permanent diary memory into projectling/memory/memory.db. Use this when datememory.json exceeds the threshold or when the user asks to store long-term memory. Diary must be dated YYYY-MM-DD and include at least five keywords.",
+      "pinned": false
+    },
+    "memory_check": {
+      "expanded": true,
+      "summary": "Search permanent diary memory by at least five keywords",
+      "detail": "Search permanent diary memory by at least five keywords. If the best hit rate is 80% or higher, returns the best diary detail; otherwise returns only date summaries.",
+      "pinned": false
+    },
+    "memory_read": {
+      "expanded": true,
+      "summary": "Read permanent diary memory by exact dates only",
+      "detail": "Read permanent diary memory by exact dates only. Dates must be YYYY-MM-DD; do not use fuzzy ranges or months.",
+      "pinned": false
+    },
+    "memory_status": {
+      "expanded": true,
+      "summary": "Inspect projectling permanent memory paths, datememory size, and SQLite diary counts",
+      "detail": "Inspect projectling permanent memory paths, datememory size, and SQLite diary counts.",
+      "pinned": false
+    },
+    "memorycheak": {
+      "expanded": true,
+      "summary": "Backward-compatible alias for memory_check",
+      "detail": "Backward-compatible alias for memory_check.",
+      "pinned": false
+    },
+    "model_mode": {
+      "expanded": true,
+      "summary": "Inspect or change ProjectLing collaboration mode",
+      "detail": "Inspect or change ProjectLing collaboration mode. rapid uses chat/chat, standard uses reasoner planner plus chat executor, and precise uses reasoner/reasoner. Changes are persisted for following turns.",
+      "pinned": false
+    },
+    "persona_link": {
+      "expanded": false,
+      "summary": "Unified role link tool for ProjectLing",
+      "detail": "Unified role link tool for ProjectLing. Use action=switch to hand current speech between main role and liaison, action=liaison for short internal decision review, action=mission to queue a delegated task, action=send for a plain message to the liaison, and action=contact for an active liaison conversation. All actions send structured messages to the liaison path; only switch changes the visible speaker.",
+      "pinned": false
+    },
+    "terminal": {
+      "expanded": true,
+      "summary": "Create or control a collaborative Termux terminal backed by tmux",
+      "detail": "Create or control a collaborative Termux terminal backed by tmux. Use action=start for long-running or interactive workflows: it opens a new Termux foreground session, logs terminal output under aidebug/projectling/terminal output, and returns log path/line/size metadata. Use action=send to send another command to the same terminal, action=info to inspect log metadata, and action=stop or action=close to end the tmux session. Read large logs with command using sed/head/tail slices instead of copying the whole log. Assistant-sent command strings must be clearly safe; risky or blocked commands are rejected here and should go through command so the human confirmation gate can handle them.",
+      "pinned": false
+    },
+    "tool_manage": {
+      "expanded": true,
+      "summary": "Inspect and manage the tool box layer",
+      "detail": "Inspect and manage the tool box layer. Use action=list to view summaries and visibility state, action=inspect to reveal selected tool details, action=expand/collapse to change a tool's schema visibility, and action=reset to restore all tools. tool_manage itself stays pinned and always visible.",
+      "pinned": true
+    },
+    "update_plan": {
+      "expanded": true,
+      "summary": "Shared visible task plan for ProjectLing",
+      "detail": "Shared visible task plan for ProjectLing. Use mode=todo for medium multi-step tasks and mode=plan for complex phased work. Call action=start to create a plan, action=update whenever a step starts, finishes, changes, or blocks, action=complete for the final step, status to inspect, and reset to clear. Every start/update/complete triggers planner review before execution continues.",
+      "pinned": true
+    },
+    "web_search": {
+      "expanded": true,
+      "summary": "Search the web through the configured Volcengine/Feedcoop WebSearch API",
+      "detail": "Search the web through the configured Volcengine/Feedcoop WebSearch API. Use mode=summary when the user needs a fast synthesized answer with sources, mode=web when raw result lists are better, and mode=auto to prefer summary when available. Results are bounded for token control.",
+      "pinned": false
+    }
+  }
+}
