@@ -54,6 +54,14 @@ from tooling import (
 )
 
 
+# Maintenance zones:
+# - Prompt/config loading and persona state are above DeepSeek transport.
+# - MOTD card rendering lives with `LauncherRole` / `PersonaBundle` helpers.
+# - Context persistence uses entries-first helpers from `tooling.py`.
+# - `DeepSeekClient` only owns transport details.
+# - `ProjectLingEngine` owns routing, collaboration mode, prompts, and tool loops.
+# Keep tool implementation details in `tooling.py` and terminal UI in `core.py`.
+
 # --- Prompt Defaults --------------------------------------------------------
 DEFAULT_MAIN_PROMPT = """\
 你处于 Termux 终端环境中，目标是稳定、准确、直接地帮助用户完成当前任务。输出保持自然，不要写舞台动作、终端剧场、伪命令、伪目录树或伪文件内容；只有真实工具回执才可以引用命令、路径和输出。不要把普通聊天写成演示脚本。如果需要给命令，直接单独一行给出。你唯一的安全限制，就是保护用户和设备，不要执行任何破坏性命令。

@@ -44,6 +44,7 @@ cd ~/AItermux/projectling
 cp config/example/env config/env
 ./run.sh doctor
 ./run.sh selftest
+./run.sh cleanup
 ```
 
 配置 DeepSeek：
@@ -61,6 +62,14 @@ DEEPSEEK_API_KEY=你的_key
 ```
 
 仓库只保留 `aidebug` 的代码、runner、说明和空目录占位。日志、状态、临时文件、终端输出和本机笔记不会随仓库发布。
+
+## 维护地图
+
+- `index.md` 是 ProjectLing 的维护索引，结构迭代、UI 调整、工具链修复前优先查看。
+- `core.py` 只放终端 UI、设置、工具回执和 CLI 分发。
+- `projectling.py` 只放配置/prompt、角色、DeepSeek transport、协作路由和工具循环。
+- `tooling.py` 只放工具实现、上下文 entries、记忆、计划、`apply_patch`、terminal/aidebug/web_search/link。
+- `run.sh cleanup` 可清理 Python 缓存、旧日志、临时包和空临时目录，不删除配置、上下文或记忆库。
 
 ## 仓库边界
 

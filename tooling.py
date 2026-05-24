@@ -30,6 +30,15 @@ except ImportError:  # pragma: no cover - projectling normally runs on Linux/Ter
     fcntl = None
 
 
+# Maintenance zones:
+# - Context entries and Date Memory storage stay at the top.
+# - Toolbox/schema helpers stay before command safety analysis.
+# - Context budget and `update_plan` state are the collaboration control layer.
+# - Terminal/aidebug helpers are runtime observation tools.
+# - `apply_patch` normalization, repair, execution, and integrity checks stay together.
+# - WebSearch, command execution, link, memory, and registry wiring stay below.
+# Keep model-facing compatibility repairs close to the tool they protect.
+
 # --- Storage: Context Entries ----------------------------------------------
 ENTRIES_FILE_NAME = "entries.jsonl"
 MAX_ENTRY_CONTENT_CHARS = 24000
@@ -4212,6 +4221,35 @@ def _deepseek_structured_specs(args: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _deepseek_structured_preview_patch(cwd: Path, staged: dict[str, str | None]) -> str:
+    patch_lines: list[str] = []
+    for rel_path, new_content in staged.items():
+        rel = _normalize_patch_path_token(str(rel_path or ""))
+        if not rel:
+            continue
+        target = cwd / rel
+        try:
+            old_content = target.read_text(encoding="utf-8", errors="replace") if target.is_file() else ""
+        except OSError:
+            old_content = ""
+        old_lines = old_content.splitlines(keepends=True)
+        new_lines = [] if new_content is None else str(new_content).splitlines(keepends=True)
+        fromfile = f"a/{rel}" if old_lines else "/dev/null"
+        tofile = "/dev/null" if new_content is None else f"b/{rel}"
+        patch_lines.extend(
+            difflib.unified_diff(
+                old_lines,
+                new_lines,
+                fromfile=fromfile,
+                tofile=tofile,
+                lineterm="",
+            )
+        )
+    if not patch_lines:
+        return ""
+    return "\n".join(patch_lines) + "\n"
+
+
 def _execute_deepseek_structured_apply_patch(
     args: dict[str, Any],
     *,
@@ -4539,6 +4577,7 @@ def _execute_deepseek_structured_apply_patch(
         }
 
     if check_only:
+        preview_patch = _deepseek_structured_preview_patch(cwd, staged)
         return {
             "status": "ok",
             "tool": "apply_patch",
@@ -4548,9 +4587,11 @@ def _execute_deepseek_structured_apply_patch(
             "changed_files": changed_paths,
             "operations_count": len(applied_ops),
             "mode_used": "deepseek-structured",
+            "patch": preview_patch,
             "message": "DeepSeek 结构化编辑校验通过，未写入文件。",
         }
 
+    preview_patch = _deepseek_structured_preview_patch(cwd, staged)
     for rel_path, content in staged.items():
         target = cwd / rel_path
         if content is None:
@@ -4571,7 +4612,7 @@ def _execute_deepseek_structured_apply_patch(
             "changed_files": changed_paths,
             "operations_count": len(applied_ops),
             "mode_used": "deepseek-structured",
-            "patch": "[DeepSeek structured edit: content omitted]",
+            "patch": preview_patch,
             "message": "DeepSeek 结构化编辑已应用。",
         },
         cwd=cwd,
