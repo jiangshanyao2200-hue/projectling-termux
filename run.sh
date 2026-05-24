@@ -52,6 +52,33 @@ projectling_find_delete_old_files() {
   find "$dir" -type f -mtime +"$days" "$@" -delete 2>/dev/null || true
 }
 
+projectling_find_delete_temp_archives() {
+  local dir="$1"
+  local days="${2:-1}"
+  [ -d "$dir" ] || return 0
+  case "$days" in ''|*[!0-9]*) days=1 ;; esac
+  if [ "$days" -le 0 ]; then
+    find "$dir" -type f \
+      \( -name '*.tgz' -o -name '*.tar.gz' -o -name '*.zip' -o -name '*.apk' \) \
+      -delete 2>/dev/null || true
+  else
+    find "$dir" -type f -mtime +"$days" \
+      \( -name '*.tgz' -o -name '*.tar.gz' -o -name '*.zip' -o -name '*.apk' \) \
+      -delete 2>/dev/null || true
+  fi
+}
+
+projectling_delete_empty_dirs() {
+  local dir="$1"
+  [ -d "$dir" ] || return 0
+  find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+}
+
+projectling_clean_python_caches() {
+  find "$ROOT_DIR" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
+  find "$ROOT_DIR" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
+}
+
 projectling_log_housekeeping_due() {
   local interval now last
   interval="${AITERMUX_LOG_CLEAN_INTERVAL_SECONDS:-3600}"
@@ -103,6 +130,9 @@ projectling_log_housekeeping() {
   find "$AIDEBUG_DIR" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
   find "$AIDEBUG_DIR" -type f -mtime +"${AITERMUX_TMP_LOG_KEEP_DAYS:-7}" \
     \( -name '.tmp.*' -o -name '*.tmp' -o -name '*.bak' \) -delete 2>/dev/null || true
+  projectling_find_delete_temp_archives "$AIDEBUG_DIR/tmp" "${AITERMUX_TMP_ARCHIVE_KEEP_DAYS:-1}" || true
+  projectling_delete_empty_dirs "$AIDEBUG_DIR/tmp" || true
+  projectling_clean_python_caches || true
 
   projectling_mark_log_housekeeping
 }
@@ -233,6 +263,13 @@ else
   projectling_debug_log "runner_missing_python args=$*"
   echo "[projectling] 未找到 python。" >&2
   exit 127
+fi
+
+if [ "${1:-}" = "cleanup" ]; then
+  AITERMUX_LOG_CLEAN_INTERVAL_SECONDS=0 AITERMUX_TMP_ARCHIVE_KEEP_DAYS=0 projectling_log_housekeeping || true
+  projectling_debug_log "runner_cleanup args=$*"
+  echo "[projectling] cleanup completed."
+  exit 0
 fi
 
 projectling_log_housekeeping || true
