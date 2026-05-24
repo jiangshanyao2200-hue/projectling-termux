@@ -5051,6 +5051,7 @@ def _cmd_selftest(args: argparse.Namespace) -> int:
     except Exception as exc:
         _selftest_record(results, "log housekeeping", False, str(exc))
 
+    _selftest_run_command(results, "cleanup command", ["bash", "run.sh", "cleanup"], timeout=10)
     _selftest_run_command(results, "settings root exits", [sys.executable, "core.py", "shell-settings"], input_text="0\n", timeout=10)
     _selftest_run_command(results, "settings system exits", [sys.executable, "core.py", "shell-settings", "--tab", "system"], input_text="0\n", timeout=10)
     _selftest_run_command(results, "motd render", [sys.executable, "core.py", "render-motd-card", "--width", "80", "--max-lines", "12"], timeout=10)
