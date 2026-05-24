@@ -75,6 +75,13 @@ from tooling import (
 #
 # DeepSeek 当前这条接入链路不提供稳定的官方模型 list 接口，因此这里保留
 # 一组保守默认项，同时允许用户手输自定义模型名。
+#
+# Maintenance zones:
+# - ANSI/Markdown rendering and stream sanitizing live before ShellStreamPrinter.
+# - Settings and command help live around `_render_*settings*` and `_run_*settings*`.
+# - Tool receipt UI lives in `_tool_*` and `_render_*_receipt` helpers.
+# - CLI routing starts at `dispatch_shell_input`, parser setup, then `_cmd_*`.
+# Keep behavior changes in the narrowest zone so this large file stays navigable.
 MODEL_CHOICES: list[tuple[str, str]] = [
     ("deepseek-chat", "通用聊天"),
     ("deepseek-reasoner", "深度推理"),
@@ -1553,6 +1560,7 @@ def _render_command_help() -> None:
     print("  /settings  打开设置")
     print("  /codexurl  打开 codexurl")
     print("  /help      显示帮助")
+    print("  ./run.sh cleanup  清理运行缓存和临时包")
 
 
 def _render_settings_root(current: ProjectLingConfig) -> None:
@@ -2896,8 +2904,20 @@ def _tool_actor_text(payload: dict[str, Any], *, width: int = 42) -> str:
         label = "主角色"
     if not label and not name:
         return ""
-    text = f"{label} · {name}" if label and name else label or name
-    return _middle_truncate_display(_shorten_tool_text(text), width)
+    if actor_kind == "executor" or label in {"执行位", "Executor"}:
+        symbol = "↳"
+    elif actor_kind == "planner" or label in {"主角色", "Planner"}:
+        symbol = "◇"
+    elif label in {"辅导位", "Liaison"}:
+        symbol = "◌"
+    else:
+        symbol = "·"
+    display_name = name or label
+    text = _middle_truncate_display(_shorten_tool_text(f"{symbol} {display_name}"), width)
+    if _supports_tty_control() and display_name:
+        plain_name = _middle_truncate_display(_shorten_tool_text(display_name), max(8, width - 2))
+        return f"{symbol} {ANSI_ITALIC}{plain_name}"
+    return text
 
 
 def _tool_manage_name_list(value: Any) -> list[str]:
@@ -3880,7 +3900,12 @@ def _render_model_mode_receipt(payload: dict[str, Any]) -> str:
         body += f"  ({_collab_mode_detail(previous)} -> {_collab_mode_detail(mode)})"
     lines = [heading, _style_tool_line(f"  {body}", ANSI_SOFT_BLUE, dim=True)]
     if planner or executor:
-        lines.append(_style_tool_line(f"  规划位 {planner or '?'}  /  执行位 {executor or '?'}", ANSI_SOFT_BLUE, dim=True))
+        if _supports_tty_control():
+            planner_text = f"◇ {ANSI_ITALIC}{planner or '?'}"
+            executor_text = f"↳ {ANSI_ITALIC}{executor or '?'}"
+            lines.append(_style_tool_line(f"  {planner_text}  /  {executor_text}", ANSI_SOFT_BLUE, dim=True))
+        else:
+            lines.append(_style_tool_line(f"  ◇ {planner or '?'}  /  ↳ {executor or '?'}", ANSI_SOFT_BLUE, dim=True))
     reason = str(payload.get("reason") or "").strip()
     if reason:
         lines.append(_style_tool_line(f"  {reason}", ANSI_WHITE, dim=True))
