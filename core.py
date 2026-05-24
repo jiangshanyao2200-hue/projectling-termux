@@ -4679,6 +4679,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("doctor", help="print config and runtime status")
+    sub.add_parser("cleanup", help="clean runtime caches and temporary package archives")
     selftest = sub.add_parser("selftest", help="run offline release smoke tests")
     selftest.add_argument("--json", action="store_true", help="print structured selftest result")
 
@@ -4845,6 +4846,15 @@ def _cmd_doctor() -> int:
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
+
+
+def _cmd_cleanup() -> int:
+    runner = PROJECTLING_DIR / "run.sh"
+    if not runner.is_file():
+        print("[projectling] cleanup runner missing.", file=sys.stderr)
+        return 1
+    completed = subprocess.run(["bash", str(runner), "cleanup"], cwd=str(PROJECTLING_DIR), check=False)
+    return int(completed.returncode)
 
 
 def _selftest_record(results: list[dict[str, Any]], name: str, ok: bool, detail: str = "", *, skipped: bool = False) -> None:
@@ -5462,6 +5472,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "doctor":
             return _cmd_doctor()
+        if args.command == "cleanup":
+            return _cmd_cleanup()
         if args.command == "selftest":
             return _cmd_selftest(args)
         if args.command == "chat":
