@@ -63,6 +63,7 @@ from projectling import (
 )
 from tooling import (
     _execute_apply_patch_tool,
+    _execute_command_tool,
     _execute_contextmanage_tool,
     _execute_update_plan_tool,
     context_entries_status,
@@ -116,9 +117,10 @@ SHELL_DISPATCH_MODES = {"chat", "command_not_found", "send"}
 LEGACY_RUNTIME_FILES = ("shell_history.json",)
 LEGACY_ROOT_RUNTIME_FILES = ("pending-command.json", "update-plan.json")
 THINKING_PREVIEW_MAX_LINES = 8
-THINKING_FOLD_DELAY_SECONDS = 0.7
-THINKING_RENDER_INTERVAL_SECONDS = 0.28
-WORKING_ANIMATION_INTERVAL_SECONDS = 0.75
+THINKING_FOLD_DELAY_SECONDS = 0.35
+THINKING_RENDER_INTERVAL_SECONDS = 0.2
+WORKING_ANIMATION_INTERVAL_SECONDS = 0.55
+TYPEWRITER_BULK_CHARS = 1400
 TOOL_PREVIEW_HEAD_LINES = 2
 TOOL_PREVIEW_TAIL_LINES = 3
 
@@ -1551,6 +1553,14 @@ def _tool_round_limit_label(value: int) -> str:
     return "UNLIMITED" if rounds == 0 else str(rounds)
 
 
+def _typewriter_bulk_threshold() -> int:
+    raw = os.environ.get("PROJECTLING_TYPEWRITER_BULK_CHARS", str(TYPEWRITER_BULK_CHARS))
+    try:
+        return max(0, int(raw or str(TYPEWRITER_BULK_CHARS)))
+    except ValueError:
+        return TYPEWRITER_BULK_CHARS
+
+
 def _render_command_help() -> None:
     print("")
     print("PROJECT凌")
@@ -1560,7 +1570,7 @@ def _render_command_help() -> None:
     print("  /settings  打开设置")
     print("  /codexurl  打开 codexurl")
     print("  /help      显示帮助")
-    print("  ./run.sh cleanup  清理运行缓存和临时包")
+    print("  ./run.sh cleanup  清理日志/临时包；--deep 同时清 bytecode")
 
 
 def _render_settings_root(current: ProjectLingConfig) -> None:
@@ -2632,7 +2642,14 @@ class ShellStreamPrinter:
             return
         self.start()
         self.clear_status()
-        bulk_mode = not self.typewriter_enabled
+        plain_len = len(_strip_ansi(text))
+        bulk_threshold = _typewriter_bulk_threshold()
+        bulk_mode = (
+            not self.typewriter_enabled
+            or (bulk_threshold > 0 and plain_len >= bulk_threshold)
+            or "```" in text
+            or "\n|" in text
+        )
         burst_count = 0
         for token in _tokenize_ansi(text):
             if not token:
@@ -2920,6 +2937,13 @@ def _tool_actor_text(payload: dict[str, Any], *, width: int = 42) -> str:
     return text
 
 
+def _should_render_tool_actor(payload: dict[str, Any]) -> bool:
+    actor_kind = str(payload.get("actor_kind") or "").strip().lower()
+    if actor_kind == "executor":
+        return False
+    return bool(actor_kind or str(payload.get("actor_label") or "").strip() or str(payload.get("actor_name") or "").strip())
+
+
 def _tool_manage_name_list(value: Any) -> list[str]:
     if isinstance(value, str):
         items: list[Any] = [value]
@@ -3029,7 +3053,7 @@ def _tool_group_entry(payload: dict[str, Any], family: str) -> str:
 def _render_grouped_tool_receipt(payloads: list[dict[str, Any]], family: str) -> str:
     first = payloads[0]
     heading_plain = "● Explored" if family == "explore" else _tool_heading_base(first)
-    actor_text = _tool_actor_text(first, width=40)
+    actor_text = _tool_actor_text(first, width=40) if _should_render_tool_actor(first) else ""
     heading = heading_plain
     if _supports_tty_control():
         heading = f"{ANSI_BOLD}{_tool_heading_color(first)}{heading_plain}{ANSI_RESET}"
@@ -3166,7 +3190,7 @@ def _tool_brief(payload: dict[str, Any]) -> str:
 def _tool_heading(payload: dict[str, Any]) -> str:
     base = _tool_heading_base(payload)
     brief = _tool_brief(payload)
-    actor = _tool_actor_text(payload)
+    actor = _tool_actor_text(payload) if _should_render_tool_actor(payload) else ""
     parts = [part for part in (actor, brief) if part]
     if not _supports_tty_control():
         return f"{base} · {' · '.join(parts)}".rstrip()
@@ -3764,9 +3788,11 @@ def _render_link_receipt(payload: dict[str, Any]) -> str:
     if context_percent not in {None, ""}:
         try:
             percent = max(0, min(100, int(context_percent)))
-            context_line = f"ctx {percent}%"
+            context_label = "handoff ctx" if action == "continue" else "next ctx"
+            context_line = f"{context_label} {percent}%"
         except (TypeError, ValueError):
-            context_line = f"ctx {context_percent}"
+            context_label = "handoff ctx" if action == "continue" else "next ctx"
+            context_line = f"{context_label} {context_percent}"
 
     step_block = steps_text()
     main_name = str(payload.get("main_role") or payload.get("main_name") or "").strip()
@@ -4951,18 +4977,22 @@ def _cmd_selftest(args: argparse.Namespace) -> int:
 
         casual = engine.preview_route("你好", dispatch_mode="chat")
         task = engine.preview_route("请帮我写一个网页版贪吃蛇，单文件 index.html", dispatch_mode="chat")
+        code_only = engine.preview_route("写一个 Python 函数 is_even(n)，只给代码，不要创建文件。", dispatch_mode="chat")
         route_ok = (
             casual.get("model") == engine._planner_model_for_mode(config.collab_mode)
             and bool(casual.get("thinking_enabled")) == ("reasoner" in str(casual.get("model")))
             and bool(task.get("tools_enabled"))
             and task.get("tool_scope") == "plan_gate"
             and bool(task.get("plan_required"))
+            and code_only.get("category") == "code_generation"
+            and not bool(code_only.get("tools_enabled"))
+            and not bool(code_only.get("plan_required"))
         )
         _selftest_record(
             results,
             "routing policy",
             route_ok,
-            f"casual={casual.get('model')} task={task.get('tool_scope')}/{task.get('task_complexity')}",
+            f"casual={casual.get('model')} task={task.get('tool_scope')}/{task.get('task_complexity')} code={code_only.get('category')}/{code_only.get('tool_scope')}",
         )
     except Exception as exc:
         _selftest_record(results, "config/schema/routing", False, str(exc))
@@ -5001,6 +5031,26 @@ def _cmd_selftest(args: argparse.Namespace) -> int:
                 {"operation": "write", "target_file": "../escape.txt", "content": "x", "brief": "selftest escape"},
                 context,
             )
+            home_shortcut_result = _execute_apply_patch_tool(
+                {"operation": "write", "target_file": "~/escape.txt", "content": "x", "brief": "selftest home shortcut"},
+                context,
+            )
+            diff_escape_result = _execute_apply_patch_tool(
+                {
+                    "patch": (
+                        "diff --git a/../escape.txt b/../escape.txt\n"
+                        "new file mode 100644\n"
+                        "index 0000000..2222222\n"
+                        "--- /dev/null\n"
+                        "+++ b/../escape.txt\n"
+                        "@@ -0,0 +1 @@\n"
+                        "+escape\n"
+                    ),
+                    "strip": 1,
+                    "brief": "selftest diff escape",
+                },
+                context,
+            )
             app_text = (root / "app" / "index.html").read_text(encoding="utf-8")
             apply_ok = (
                 write_result.get("status") == "ok"
@@ -5009,8 +5059,31 @@ def _cmd_selftest(args: argparse.Namespace) -> int:
                 and "BC" in app_text
                 and "<!-- tail -->" in app_text
                 and escape_result.get("status") == "blocked"
+                and home_shortcut_result.get("status") == "blocked"
+                and diff_escape_result.get("status") == "blocked"
             )
             _selftest_record(results, "apply_patch execution", apply_ok, f"mode={edits_result.get('mode_used')}")
+
+            command_write_result = _execute_command_tool(
+                {"command": "cat > blocked.txt <<'EOF'\nx\nEOF", "brief": "selftest command write"},
+                context,
+            )
+            command_read_result = _execute_command_tool(
+                {"command": "printf ok", "brief": "selftest command read"},
+                context,
+            )
+            command_mkdir_result = _execute_command_tool(
+                {"command": "mkdir -p app2", "brief": "selftest command mkdir"},
+                context,
+            )
+            _selftest_record(
+                results,
+                "command write guard",
+                command_write_result.get("status") == "blocked"
+                and command_mkdir_result.get("status") == "blocked"
+                and command_read_result.get("status") == "ok",
+                str(command_write_result.get("message") or ""),
+            )
 
             plan_start = _execute_update_plan_tool(
                 {
@@ -5086,6 +5159,73 @@ def _cmd_selftest(args: argparse.Namespace) -> int:
     except Exception as exc:
         _selftest_record(results, "log housekeeping", False, str(exc))
 
+    try:
+        with tempfile.TemporaryDirectory(prefix="projectling-single-instance-") as tmp:
+            root = Path(tmp)
+            fake_bin = root / "bin"
+            runtime_dir = root / "runtime"
+            fake_bin.mkdir(parents=True, exist_ok=True)
+            runtime_dir.mkdir(parents=True, exist_ok=True)
+            fake_python = fake_bin / "python"
+            fake_python.write_text(
+                "#!/usr/bin/env bash\n"
+                "sleep 0.75\n"
+                "exit 0\n",
+                encoding="utf-8",
+            )
+            fake_python.chmod(0o755)
+            script = "\n".join(
+                [
+                    "set -euo pipefail",
+                    "export PATH=\"${FAKE_BIN}:$PATH\"",
+                    "export AITERMUX_PROJECTLING_RUNTIME_DIR=\"${RUNTIME_DIR}\"",
+                    "export PROJECTLING_SINGLE_INSTANCE=auto",
+                    "\"${PROJECTLING_RUN}\" shell-dispatch --mode chat --cwd . --raw \"pong\" --dry-run >/dev/null 2>&1 &",
+                    "pid1=$!",
+                    "sleep 0.15",
+                    "\"${PROJECTLING_RUN}\" shell-dispatch --mode chat --cwd . --raw \"ping\" --dry-run >/dev/null 2>&1 &",
+                    "pid2=$!",
+                    "wait \"$pid1\"",
+                    "rc1=$?",
+                    "wait \"$pid2\"",
+                    "rc2=$?",
+                    "test \"$rc1\" -eq 0 && test \"$rc2\" -eq 0",
+                ]
+            )
+            completed = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    script,
+                ],
+                cwd=str(PROJECTLING_DIR),
+                env={
+                    **os.environ,
+                    "FAKE_BIN": str(fake_bin),
+                    "RUNTIME_DIR": str(runtime_dir),
+                    "PROJECTLING_RUN": str(PROJECTLING_DIR / "run.sh"),
+                },
+                text=True,
+                capture_output=True,
+                timeout=20,
+                check=False,
+            )
+            _selftest_record(
+                results,
+                "single-instance non-tty concurrency",
+                completed.returncode == 0,
+                f"rc={completed.returncode}",
+            )
+    except Exception as exc:
+        _selftest_record(results, "single-instance non-tty concurrency", False, str(exc))
+
+    _selftest_run_command(results, "pending fast path empty", ["bash", "-c", "./run.sh has-pending-command; test $? -eq 1"], timeout=10)
+    _selftest_run_command(
+        results,
+        "pending fast path active",
+        ["bash", "-c", "tmp=$(mktemp); trap 'rm -f \"$tmp\"' EXIT; printf '{\"expires_at\":9999999999}\\n' >\"$tmp\"; PROJECTLING_PENDING_COMMAND_FILE=\"$tmp\" ./run.sh has-pending-command"],
+        timeout=10,
+    )
     _selftest_run_command(results, "cleanup command", ["bash", "run.sh", "cleanup"], timeout=10)
     _selftest_run_command(results, "settings root exits", [sys.executable, "core.py", "shell-settings"], input_text="0\n", timeout=10)
     _selftest_run_command(results, "settings system exits", [sys.executable, "core.py", "shell-settings", "--tab", "system"], input_text="0\n", timeout=10)

@@ -3650,6 +3650,8 @@ def _patch_changed_paths(patch_text: str) -> list[str]:
 
 def _validate_patch_paths(paths: list[str]) -> tuple[bool, str]:
     for path in paths:
+        if str(path).startswith(("~/", "$HOME/", "${HOME}/")) or str(path) in {"~", "$HOME", "${HOME}"}:
+            return False, f"patch path uses home shortcut: {path}; use a path relative to cwd instead"
         candidate = Path(path)
         if candidate.is_absolute() or ".." in candidate.parts:
             return False, f"patch path escapes cwd: {path}"
@@ -4063,6 +4065,10 @@ def _raw_content_write_for_target(
             "cwd": str(cwd),
             "message": reason,
             "changed_files": [target],
+            "recovery_hint": [
+                "target_file 必须相对当前 cwd。",
+                "如果 cwd 就是 home，写 index.html；不要写 ~/index.html。",
+            ],
         }
     target_file = cwd / target
     normalized_content = value.replace("\r\n", "\n").replace("\r", "\n")
@@ -4304,6 +4310,10 @@ def _execute_deepseek_structured_apply_patch(
             "message": reason,
             "changed_files": changed_paths,
             "mode_used": "deepseek-structured",
+            "recovery_hint": [
+                "target_file 必须相对当前 cwd，例如 NotepadApp/AndroidManifest.xml。",
+                "不要使用 ~/、$HOME 或绝对路径；apply_patch 会自动创建父目录。",
+            ],
         }
 
     total_text_size = 0
@@ -4827,6 +4837,10 @@ def _execute_structured_patch(
             "message": reason,
             "changed_files": changed_paths,
             "patch": patch_text,
+            "recovery_hint": [
+                "structured patch 的文件路径必须相对当前 cwd。",
+                "不要使用 ~/、$HOME 或绝对路径；改用相对 target_file 后重试。",
+            ],
         }
     if not operations:
         return {
@@ -5208,6 +5222,47 @@ def _patch_recovery_hints(changed_paths: list[str]) -> list[str]:
     return hints
 
 
+def _command_direct_file_write_reason(command: str) -> str:
+    text = str(command or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    if "sed -i" in lowered or "sed --in-place" in lowered:
+        return "检测到 sed -i 直接写文件；代码或项目文件修改必须使用 apply_patch。"
+    if re.search(r"\bperl\b[^\n]*\s-i\b", lowered):
+        return "检测到 perl -i 直接写文件；代码或项目文件修改必须使用 apply_patch。"
+    if re.search(r"\btouch\s+\S+", lowered):
+        return "检测到 touch 创建文件；创建文件请使用 apply_patch.operation=write。"
+    if re.search(r"(^|[|;&]\s*)tee\s+(-a\s+)?\S+", lowered):
+        return "检测到 tee 写文件；创建或修改文件请使用 apply_patch.operation=write/append。"
+    if re.search(r"\b(?:cat|printf|echo)\b[^\n;&|]*(?<![0-9])>>?\s*(?!&?\d\b|/dev/null\b)\S+", lowered):
+        return "检测到 shell 重定向写文件；创建或修改文件请使用 apply_patch。"
+    if re.search(r"\b(?:cat|printf|echo)\b[^\n;&|]*\b1>>?\s*(?!&?\d\b|/dev/null\b)\S+", lowered):
+        return "检测到 shell stdout 重定向写文件；创建或修改文件请使用 apply_patch。"
+    if re.search(r"\b(?:install|cp)\b[^\n;&|]*/dev/stdin\b", lowered):
+        return "检测到通过 /dev/stdin 写文件；创建或修改文件请使用 apply_patch。"
+    if re.search(r"\bdd\b[^\n;&|]*\bof=", lowered):
+        return "检测到 dd 写文件；创建或修改文件请使用 apply_patch。"
+    if re.search(r"\bpython(?:3)?\b[^\n]*\s-c\b", lowered) and any(
+        marker in lowered for marker in ("open(", "write_text(", "write_bytes(", "path.write_text", "path.write_bytes")
+    ):
+        return "检测到 python -c 写文件；创建或修改文件请使用 apply_patch。"
+    return ""
+
+
+def _command_direct_filesystem_mutation_reason(tokens: list[str]) -> str:
+    if not tokens:
+        return ""
+    first = tokens[0]
+    if first in {"mkdir", "touch"}:
+        return f"检测到 {first} 直接创建文件/目录；创建项目文件请使用 apply_patch，它会自动创建父目录。"
+    if first in {"cp", "mv", "ln", "install"}:
+        return f"检测到 {first} 直接搬移或安装文件；项目文件变更请使用 apply_patch，避免路径漂移。"
+    if first in {"rm", "rmdir"}:
+        return f"检测到 {first} 删除文件/目录；删除项目文件请使用 apply_patch.operation=delete 或先交回用户确认。"
+    return ""
+
+
 def _command_write_warnings(command: str, decision: CommandDecision) -> list[str]:
     text = str(command or "").strip()
     if not text:
@@ -5287,6 +5342,24 @@ def _execute_apply_patch_tool(args: dict[str, Any], context: ToolContext) -> dic
             "brief": brief,
             "message": f"patch 太大：{len(raw_patch_text)} chars，超过 {MAX_PATCH_CHARS}。",
         }
+    raw_changed_paths = _patch_changed_paths(raw_patch_text)
+    raw_valid, raw_reason = _validate_patch_paths(raw_changed_paths)
+    if not raw_valid:
+        return {
+            "status": "blocked",
+            "tool": "apply_patch",
+            "brief": brief,
+            "cwd": str(cwd),
+            "message": raw_reason,
+            "changed_files": raw_changed_paths,
+            "patch": raw_patch_text,
+            "normalization": argument_notes,
+            "repair_attempts": argument_notes,
+            "recovery_hint": [
+                "patch header/target_file 必须相对当前 cwd。",
+                "不要使用 ~/、$HOME 或绝对路径；必要时先设置工具 cwd，再用相对路径。",
+            ],
+        }
     target_path = _infer_patch_target_path(args, raw_patch_text, cwd, argument_notes)
     raw_patch_text = _new_file_fragment_to_structured_add(raw_patch_text, target_path, argument_notes)
     patch_text, normalization_notes = _extract_patch_from_model_text(raw_patch_text)
@@ -5348,6 +5421,10 @@ def _execute_apply_patch_tool(args: dict[str, Any], context: ToolContext) -> dic
             "patch": patch_text,
             "normalization": normalization_notes,
             "repair_attempts": normalization_notes,
+            "recovery_hint": [
+                "patch header/target_file 必须相对当前 cwd。",
+                "不要使用 ~/、$HOME 或绝对路径；必要时先设置工具 cwd，再用相对路径。",
+            ],
         }
     if not changed_paths:
         return {
@@ -6337,6 +6414,13 @@ def _analyze_command(command: str, context: ToolContext) -> CommandDecision:
 
     if not tokens:
         return CommandDecision("blocked", "low", "命令为空。")
+
+    direct_write_reason = _command_direct_file_write_reason(stripped)
+    if direct_write_reason:
+        return CommandDecision("blocked", "high", direct_write_reason)
+    filesystem_mutation_reason = _command_direct_filesystem_mutation_reason(tokens)
+    if filesystem_mutation_reason:
+        return CommandDecision("blocked", "medium", filesystem_mutation_reason)
 
     if shell_flags.has_command_substitution:
         return CommandDecision("confirm", "medium", "检测到命令替换或多行 shell 结构，需确认执行。")

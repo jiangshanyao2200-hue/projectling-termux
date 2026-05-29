@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-05-23T19:04:53Z",
+  "updated_at": "2026-05-26T04:41:25Z",
   "tools": {
     "aidebug": {
       "expanded": true,
@@ -47,7 +47,7 @@
     "link": {
       "expanded": true,
       "summary": "X-Link role collaboration tool",
-      "detail": "X-Link role collaboration tool. Use action=continue when the planner has produced a plan and hands it to the executor, action=done when the executor reports completion, action=blocked when execution needs planner/user judgment, and action=review when planner reviews executor output. Compatibility actions switch/liaison/mission/send/contact are accepted during migration.",
+      "detail": "X-Link role collaboration tool. Use action=continue when the planner has produced a plan and hands it to the executor, action=done when the executor reports completion, action=blocked when execution needs planner/user judgment, and action=review when planner reviews executor output. Use action=ask for advice or clarification without handing execution to the executor. Compatibility actions switch/liaison/mission/send/contact are accepted during migration.",
       "pinned": false
     },
     "memory_add": {

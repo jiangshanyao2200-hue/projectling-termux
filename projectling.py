@@ -82,10 +82,12 @@ DEFAULT_ROLE_PROMPT = (
     "辅导位为 {persona_liaison_zh} / {persona_liaison_en}。"
     "当前聊天使用共享 entries 上下文，不再按角色维护独立外置上下文。"
     "主角色负责默认对外回复；辅导位默认静默，不抢答、不把普通聊天写成多人轮流发言。"
+    "简单、直白、微小的问答或单步小任务必须由主角色直接处理，不要默认交给 X-Link 或执行位。"
+    "X-Link 只用于复杂编程、复杂任务、系统排查、多步骤修改、关键风险权衡或明确的角色联动。"
     "需要切换说话者、内部决策咨询、委派任务、发送消息或主动联系辅导位时，优先调用 link 工具；persona_link 只作为兼容入口。"
     "用户说“问问她/他/它”“你没问”“用工具问问”“让辅导位回答”这类指代式请求，也算联动，不要当成普通闲聊。"
     "link.action=switch 用于主角色与辅导位之间切换当前可见说话者；"
-    "action=liaison 用于计划评审、重大决策、工具结果矛盾、代码修改、上下文治理、风险权衡；"
+    "action=liaison 用于计划评审、重大决策、工具结果矛盾、复杂代码修改、上下文治理、风险权衡；"
     "action=mission 用于把明确任务记录为辅导位任务；action=send/contact 用于给辅导位发消息或主动联系。"
     "contextmanage 用于按 entry id 查看、replace、fold 和 status 共享上下文；replace 是摘要替换，不是删除。"
     "不要在正文里假装已经询问辅导位；需要联动时直接发起工具调用。"
@@ -100,9 +102,9 @@ DEFAULT_ROLE_PROMPTS = [DEFAULT_ROLE_PROMPT]
 
 DEFAULT_TYPING_CONFIG = {
     "enabled": True,
-    "char_delay_ms": 2,
-    "burst_chars": 3,
-    "punctuation_delay_ms": 10,
+    "char_delay_ms": 1,
+    "burst_chars": 8,
+    "punctuation_delay_ms": 4,
 }
 
 DEFAULT_STATUS_TEXT = {
@@ -2557,6 +2559,7 @@ class ProjectLingEngine:
                 "X-Link role collaboration tool. Use action=continue when the planner has produced a plan and "
                 "hands it to the executor, action=done when the executor reports completion, action=blocked when "
                 "execution needs planner/user judgment, and action=review when planner reviews executor output. "
+                "Use action=ask for advice or clarification without handing execution to the executor. "
                 "Compatibility actions switch/liaison/mission/send/contact are accepted during migration."
             ),
             input_schema={
@@ -2711,6 +2714,20 @@ class ProjectLingEngine:
                 payload = dict(result)
                 payload["tool"] = "link"
                 payload.setdefault("compat_tool", "persona_link")
+                payload.setdefault("context_percent", load_context_budget(self.config).get("percent"))
+                return payload
+            return result
+        if action == "ask":
+            mapped = dict(args)
+            mapped["action"] = "liaison"
+            mapped.setdefault("brief", "X-Link 询问建议")
+            result = self._execute_persona_link_tool(mapped, context)
+            if isinstance(result, dict):
+                payload = dict(result)
+                payload["tool"] = "link"
+                payload["action"] = "ask"
+                payload.setdefault("compat_tool", "persona_link")
+                payload.setdefault("compat_action", "liaison")
                 payload.setdefault("context_percent", load_context_budget(self.config).get("percent"))
                 return payload
             return result
@@ -3473,7 +3490,68 @@ class ProjectLingEngine:
             "casual_chat",
         }:
             return False
-        return bool(route.get("analysis_like") or route.get("execution_like") or route.get("liaison_recommended"))
+        if bool(route.get("plan_required")):
+            return True
+        if bool(route.get("liaison_recommended")) and str(route.get("task_complexity") or "") in {"medium", "complex"}:
+            return True
+        return False
+
+    @staticmethod
+    def _fresh_project_bootstrap_plan(user_message: str, *, cwd: Path, context_percent: int) -> dict[str, Any]:
+        normalized = " ".join(str(user_message or "").strip().split()).lower()
+        is_android = any(marker in normalized for marker in ("apk", "android", "安卓", "应用", "记事本"))
+        is_web = any(marker in normalized for marker in ("html", "网页", "网页版", "页面", "网站", "游戏", "demo"))
+        if is_android:
+            goal = "在当前 cwd 内完成一个可编译安装的 Android APK 项目。"
+            steps = [
+                "用 update_plan 建立 APK 创建、编译、安装、验证步骤",
+                "检查本机 Android 构建工具和 adb 可用性",
+                "使用 apply_patch.operation=write 写入相对路径项目文件并让工具自动创建父目录",
+                "运行构建脚本产出 APK，并按工具事实修正编译错误",
+                "使用 adb 安装并做最小启动/包名验证",
+            ]
+            executor_brief = (
+                "在当前 cwd 内创建记事本 APK 项目；如需项目目录只能使用相对路径 NotepadApp/...，"
+                "不要使用 ~/ 或绝对路径。所有文件创建/修改都用 apply_patch.operation=write/replace，"
+                "apply_patch 会自动创建父目录；命令只用于检查环境、编译、adb 安装和验证。"
+                "Android build.sh 的 debug keystore 应放在不会被清空的路径，避免每次重编译都签名变化导致 install -r 失败。"
+            )
+            risks = ["不要把项目写到 home 根目录", "不要用 shell 重定向/tee/cat 回退写文件", "编译失败后先读错误再最小修改"]
+        elif is_web:
+            goal = "在当前 cwd 内创建可直接运行的网页/脚本产物。"
+            steps = [
+                "用 update_plan 建立创建、验证、收尾步骤",
+                "使用 apply_patch.operation=write 写入 index.html 或用户指定相对文件",
+                "运行最小语法/结构检查",
+                "报告文件路径和打开方式",
+            ]
+            executor_brief = (
+                "在当前 cwd 内创建目标网页文件，默认 index.html；target_file 必须是相对 cwd 的路径，"
+                "用 apply_patch.operation=write 落盘，不要把完整源码直接吐给用户。"
+            )
+            risks = ["避免写到 ~/index.html，除非 cwd 本身就是 home", "不要用 command 写文件回退"]
+        else:
+            goal = "在当前 cwd 内创建用户要求的项目/文件产物。"
+            steps = [
+                "用 update_plan 建立真实任务步骤",
+                "检查必要环境和已有文件",
+                "使用 apply_patch 以相对路径创建或修改文件",
+                "运行最小验证并修正明显错误",
+                "报告产物路径和验证结果",
+            ]
+            executor_brief = (
+                "按用户任务在当前 cwd 内创建产物；所有 target_file 都必须是相对 cwd 的路径，"
+                "文件编辑使用 apply_patch.operation=write/replace，命令只做检查和验证。"
+            )
+            risks = ["路径不要逃离 cwd", "不要把源码作为正文替代落盘", "工具失败后先缩小改动重试"]
+        return {
+            "goal": goal,
+            "plan": steps,
+            "risks": risks,
+            "context_percent": max(0, min(100, int(context_percent))),
+            "executor_brief": executor_brief,
+            "cwd": str(cwd),
+        }
 
     def _run_planner_step(
         self,
@@ -3490,73 +3568,99 @@ class ProjectLingEngine:
         planner_model = self._planner_model_for_mode(mode)
         raw_budget_percent = context_budget.get("percent")
         budget_percent = 100 if raw_budget_percent in {None, ""} else max(0, min(100, int(raw_budget_percent)))
-        planner_context = _context_excerpt(load_role_context(self.config, role=role), limit=max(2000, int(self.config.context_max_chars * min(budget_percent, 66) / 100)))
-        prompt = _prompt_block(
-            f"""
-            你是 ProjectLing 的 Planner。只负责思考方向、拆解步骤、判断风险和给 Executor 上下文预算。
-            不要调用工具，不要写补丁，不要输出大段代码，不要声称已经执行。
-            输出必须是可给用户看的计划摘要，不包含隐藏推理链。
-
-            协作模式：{mode}
-            Planner 模型：{planner_model}
-            Executor 模型：{route.get('executor_model')}
-            主角色：{role.name_zh} / {role.name_en}
-            辅导位：{bundle.liaison_label_or_empty}
-            cwd：{cwd}
-            路由：{route.get('category')} / {route.get('reason')}
-
-            共享上下文摘录：
-            {planner_context if planner_context else '（目前为空）'}
-
-            用户任务：
-            {_context_excerpt(user_message, limit=1800)}
-
-            文件创建约定：
-            - 如果用户要求创建网页、游戏、脚本、demo 或项目文件，默认目标是当前 cwd；不要自行改成用户 home。
-            - 用户未指定文件名时，网页/小游戏默认交给 Executor 创建 index.html。
-            - 必须要求 Executor 使用 apply_patch 的结构化字段创建/修改文件；整文件创建写明 operation=write + target_file + content，小改动写明 operation=replace + find + replace。
-            - 不要建议 cat heredoc、echo/printf 重定向、tee、touch、sed -i 或 python 写文件。
-            - executor_brief 必须明确写出目标文件名和“使用 apply_patch.operation=write/replace”。
-            - Planner 只给方向，不要要求 Executor 输出完整源码到聊天正文。
-
-            请用简洁 JSON 输出：
-            {{
-              "goal": "本轮目标",
-              "plan": ["最多 5 步，动词开头"],
-              "risks": ["最多 3 条"],
-              "context_percent": 66,
-              "executor_brief": "交给 Executor 的一句话"
-            }}
-            """
-        )
+        file_creation_like = bool(route.get("file_creation_like"))
         try:
-            response = self.client.chat_completions(
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                tools=None,
-                tool_choice="none",
-                model=planner_model,
-                temperature=0.1,
-                thinking_enabled=self.client._thinking_enabled_for_request(configured_model=planner_model),
-                max_tokens=1800,
+            cwd_has_files = any(cwd.iterdir())
+        except OSError:
+            cwd_has_files = True
+        default_context_percent = 25 if file_creation_like and not cwd_has_files else 66
+        planner_context_cap = 8000 if file_creation_like else 12000
+        planner_context_limit = max(2000, min(planner_context_cap, int(self.config.context_max_chars * min(budget_percent, default_context_percent) / 100)))
+        planner_source = "remote"
+        if file_creation_like and not cwd_has_files and bool(route.get("plan_required")):
+            planner_source = "local_fresh_project_bootstrap"
+            local_plan = self._fresh_project_bootstrap_plan(
+                user_message,
+                cwd=cwd,
+                context_percent=default_context_percent,
             )
-            assistant_message, _has_tools = self._normalize_message_response(response)
-            planner_text = str(assistant_message.get("content") or "").strip()
-            reasoning_text = str(assistant_message.get("reasoning_content") or "").strip()
-        except Exception as exc:
-            planner_text = json.dumps(
-                {
-                    "goal": "Planner 调用失败，Executor 按原任务继续。",
-                    "plan": ["读取当前事实", "执行最小必要步骤", "验证结果", "向用户报告"],
-                    "risks": [str(exc)],
-                    "context_percent": 66,
-                    "executor_brief": "Planner 不可用，按用户任务稳妥推进。",
-                },
-                ensure_ascii=False,
+            planner_text = json.dumps(local_plan, ensure_ascii=False)
+            reasoning_text = (
+                "本地轻量 Planner：这是空目录里的全新产物任务，跳过远端 Planner，"
+                "避免旧上下文和网络 524 拖慢执行。执行位仍必须先 update_plan，"
+                "再用 apply_patch 以相对 cwd 的路径落盘。"
             )
-            reasoning_text = ""
+        else:
+            planner_context = _context_excerpt(load_role_context(self.config, role=role), limit=planner_context_limit)
+            prompt = _prompt_block(
+                f"""
+                你是 ProjectLing 的 Planner。只负责思考方向、拆解步骤、判断风险和给 Executor 上下文预算。
+                不要调用工具，不要写补丁，不要输出大段代码，不要声称已经执行。
+                输出必须是可给用户看的计划摘要，不包含隐藏推理链。
+
+                协作模式：{mode}
+                Planner 模型：{planner_model}
+                Executor 模型：{route.get('executor_model')}
+                主角色：{role.name_zh} / {role.name_en}
+                辅导位：{bundle.liaison_label_or_empty}
+                cwd：{cwd}
+                路由：{route.get('category')} / {route.get('reason')}
+
+                共享上下文摘录：
+                {planner_context if planner_context else '（目前为空）'}
+
+                用户任务：
+                {_context_excerpt(user_message, limit=1800)}
+
+                文件创建约定：
+                - 如果用户要求创建网页、游戏、脚本、demo 或项目文件，默认目标是当前 cwd；不要自行改成用户 home。
+                - 所有 apply_patch target_file 必须是相对 cwd 的路径；如果需要项目子目录，使用 NotepadApp/... 这类相对路径，不要使用 ~/、$HOME 或绝对路径。
+                - 用户未指定文件名时，网页/小游戏默认交给 Executor 创建 index.html。
+                - 必须要求 Executor 使用 apply_patch 的结构化字段创建/修改文件；整文件创建写明 operation=write + target_file + content，小改动写明 operation=replace + find + replace。
+                - 不要建议 cat heredoc、echo/printf 重定向、tee、touch、sed -i 或 python 写文件。
+                - executor_brief 必须明确写出目标文件名和“使用 apply_patch.operation=write/replace”。
+                - Planner 只给方向，不要要求 Executor 输出完整源码到聊天正文。
+                - 全新文件/空目录项目默认 context_percent={default_context_percent}，避免旧上下文拖慢或污染执行；只有修改现有项目才提高到 66 或 85。
+
+                请用简洁 JSON 输出：
+                {{
+                  "goal": "本轮目标",
+                  "plan": ["最多 5 步，动词开头"],
+                  "risks": ["最多 3 条"],
+                  "context_percent": {default_context_percent},
+                  "executor_brief": "交给 Executor 的一句话"
+                }}
+                """
+            )
+            try:
+                response = self.client.chat_completions(
+                    messages=[
+                        {"role": "system", "content": prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    tools=None,
+                    tool_choice="none",
+                    model=planner_model,
+                    temperature=0.1,
+                    thinking_enabled=self.client._thinking_enabled_for_request(configured_model=planner_model),
+                    max_tokens=1800,
+                )
+                assistant_message, _has_tools = self._normalize_message_response(response)
+                planner_text = str(assistant_message.get("content") or "").strip()
+                reasoning_text = str(assistant_message.get("reasoning_content") or "").strip()
+            except Exception as exc:
+                planner_source = "remote_fallback"
+                planner_text = json.dumps(
+                    {
+                        "goal": "Planner 调用失败，Executor 按原任务继续。",
+                        "plan": ["读取当前事实", "执行最小必要步骤", "验证结果", "向用户报告"],
+                        "risks": [str(exc)],
+                        "context_percent": default_context_percent,
+                        "executor_brief": "Planner 不可用，按用户任务稳妥推进；文件编辑必须使用 apply_patch，路径必须相对当前 cwd。",
+                    },
+                    ensure_ascii=False,
+                )
+                reasoning_text = ""
         elapsed_seconds = max(0.0, time.monotonic() - started_at)
 
         parsed: dict[str, Any] = {}
@@ -3572,9 +3676,11 @@ class ProjectLingEngine:
         risks_raw = parsed.get("risks") or []
         risks = [str(item).strip() for item in risks_raw if str(item).strip()] if isinstance(risks_raw, list) else []
         try:
-            context_percent = max(0, min(100, int(parsed.get("context_percent") or 66)))
+            context_percent = max(0, min(100, int(parsed.get("context_percent") or default_context_percent)))
         except (TypeError, ValueError):
-            context_percent = 66
+            context_percent = default_context_percent
+        if file_creation_like and not cwd_has_files:
+            context_percent = min(context_percent, 33)
         message = str(parsed.get("executor_brief") or parsed.get("goal") or planner_text).strip()
         if bool(route.get("file_creation_like")):
             if not steps:
@@ -3603,6 +3709,7 @@ class ProjectLingEngine:
             "message": message or _context_excerpt(planner_text, limit=600),
             "plan_text": planner_text,
             "reasoning_text": reasoning_text,
+            "planner_source": planner_source,
             "steps": steps,
             "risks": risks,
             "context_percent": context_percent,
@@ -3734,6 +3841,31 @@ class ProjectLingEngine:
         action = str(payload.get("action") or "").strip().lower()
         return action in {"start", "update", "complete"}
 
+    @staticmethod
+    def _tool_failure_guidance(payload: dict[str, Any]) -> str:
+        status = str(payload.get("status") or "").strip().lower()
+        if status not in {"error", "blocked", "timeout", "rejected"}:
+            return ""
+        tool = str(payload.get("tool") or "").strip()
+        channel = str(payload.get("channel") or "").strip()
+        summary = str(payload.get("summary") or payload.get("message") or payload.get("reason") or "").strip()
+        if not summary:
+            command = str(payload.get("command") or "").strip()
+            if command:
+                summary = f"{channel or tool or 'tool'} failed: {command[:180]}"
+        guidance = [
+            "上一条工具结果失败或被阻断，不能把对应计划步骤标记为 done，也不能在最终回复里声称已完成验证。",
+            "先根据 stdout/stderr/message 定位原因；如果原因明确，可最小修复后重试，否则用 link.action=blocked 交回主角色/用户判断。",
+            "文件创建、改写、搬移、删除都继续使用 apply_patch；不要改用 command/cat/tee/heredoc/python/mkdir/cp/rm 作为写文件回退。",
+        ]
+        if channel == "ADB" or str(payload.get("command") or "").strip().startswith("adb"):
+            guidance.append("ADB 启动或 input 失败不等于功能验证通过；最多只能报告包安装/启动烟测结果。")
+        if "INSTALL_FAILED_UPDATE_INCOMPATIBLE" in (str(payload.get("stdout") or "") + str(payload.get("stderr") or "")):
+            guidance.append("检测到安装签名冲突：需要说明签名原因；可卸载重装完成安装，但最终必须如实说明这不是直接 install -r 成功。")
+        if summary:
+            guidance.append(f"失败摘要：{summary[:300]}")
+        return _prompt_block("\n".join(f"- {line}" for line in guidance))
+
     def _maybe_review_plan_update(
         self,
         *,
@@ -3782,6 +3914,11 @@ class ProjectLingEngine:
             你是 ProjectLing 的主角色 Planner，正在做长任务中的动态复审。
             只做审查、纠偏、后续方向和上下文风险判断；不要调用工具，不要写完整补丁，不要声称已经执行。
             输出给 Executor 的可见复审，控制在 2-5 行：先判断是否跑偏，再给下一步，必要时给一个纠错点。
+            复审硬规则：
+            - 不要建议用 command/cat/tee/heredoc/python/sed/mkdir/cp/rm 写入、搬移或删除项目文件；apply_patch 失败时，要求读取目标片段并用更小的 apply_patch 重试。
+            - 如果最近工具状态是 error/blocked/timeout，不得允许 Executor 把对应步骤标记为 done；必须先解释失败原因、最小修复并重试，或 link.action=blocked。
+            - ADB input/启动失败不等于功能验证通过；最多算安装/启动烟测，不能声称新建/编辑/删除/持久化都验证成功。
+            - 如果构建脚本需要卸载重装才能安装，最终回复必须说明签名冲突或安装方式，不要说“直接重新编译即可”。
 
             协作模式：{mode}
             Planner 模型：{planner_model}
@@ -3871,6 +4008,70 @@ class ProjectLingEngine:
         return sum(1 for keyword in keywords if keyword.lower() in normalized)
 
     @classmethod
+    def _looks_like_simple_help_request(cls, text: str) -> bool:
+        normalized = " ".join(str(text or "").strip().split())
+        if not normalized or len(normalized) > 120:
+            return False
+        action_markers = (
+            "帮我",
+            "请帮我",
+            "替我",
+            "给我",
+            "直接",
+            "运行",
+            "执行",
+            "查看",
+            "读取",
+            "列出",
+            "搜索",
+            "创建",
+            "生成",
+            "修改",
+            "修复",
+            "安装",
+            "构建",
+            "测试",
+            "排查",
+            "保存",
+            "落盘",
+            "写一个",
+            "写个",
+            "做一个",
+            "做个",
+            "实现一个",
+            "实现个",
+        )
+        if any(marker in normalized for marker in action_markers):
+            return False
+        info_markers = (
+            "是什么",
+            "什么意思",
+            "怎么",
+            "如何",
+            "为什么",
+            "区别",
+            "解释",
+            "说明",
+            "介绍",
+            "用法",
+            "含义",
+            "原理",
+            "命令",
+            "代码",
+            "文件",
+            "目录",
+            "报错",
+            "错误",
+            "脚本",
+            "函数",
+            "接口",
+            "配置",
+            "参数",
+            "工具",
+        )
+        return any(marker in normalized for marker in info_markers)
+
+    @classmethod
     def _looks_like_analysis_request(cls, text: str) -> bool:
         analysis_keywords = (
             "分析",
@@ -3897,6 +4098,10 @@ class ProjectLingEngine:
 
     @classmethod
     def _looks_like_execution_request(cls, text: str, *, allow_tools: bool) -> bool:
+        if cls._looks_like_code_only_request(text):
+            return False
+        if cls._looks_like_simple_help_request(text):
+            return False
         execution_keywords = (
             "app",
             "css",
@@ -3958,7 +4163,77 @@ class ProjectLingEngine:
         return hits >= 2
 
     @classmethod
+    def _looks_like_code_only_request(cls, text: str) -> bool:
+        normalized = " ".join(str(text or "").strip().split()).lower()
+        if not normalized:
+            return False
+        file_intent_markers = (
+            "在当前目录创建",
+            "创建一个",
+            "创建文件",
+            "生成文件",
+            "保存到",
+            "保存为",
+            "写入",
+            "落盘",
+            "创建到",
+            "写到",
+            "文件名",
+            "target_file",
+        )
+        if any(marker in normalized for marker in file_intent_markers) and not any(
+            marker in normalized for marker in ("不要创建", "不用创建", "不创建", "不要保存", "不保存", "不要落盘", "不落盘")
+        ):
+            return False
+        code_markers = (
+            "代码",
+            "代码块",
+            "函数",
+            "function",
+            "python",
+            "javascript",
+            "typescript",
+            "html",
+            "css",
+            "sql",
+            "shell",
+            "bash",
+            "snippet",
+        )
+        if cls._request_keyword_hits(normalized, code_markers) < 1:
+            return False
+        direct_only_markers = (
+            "只给代码",
+            "只输出代码",
+            "仅给代码",
+            "仅输出代码",
+            "不要创建文件",
+            "不用创建文件",
+            "不创建文件",
+            "不要保存",
+            "不保存",
+            "不要落盘",
+            "不落盘",
+            "不要执行",
+            "不用执行",
+            "不要运行",
+            "不要用工具",
+            "不要创建",
+        )
+        if any(marker in normalized for marker in direct_only_markers):
+            return True
+        write_markers = ("写一个", "写个", "实现一个", "实现个", "给我一个", "给一个")
+        function_markers = ("函数", "function", "方法", "method")
+        return (
+            cls._request_keyword_hits(normalized, write_markers) >= 1
+            and cls._request_keyword_hits(normalized, function_markers) >= 1
+            and cls._request_keyword_hits(normalized, ("文件", "目录", "保存", "落盘", "创建")) == 0
+        )
+
+    @classmethod
     def _looks_like_file_creation_request(cls, text: str) -> bool:
+        if cls._looks_like_code_only_request(text):
+            return False
         normalized = " ".join(str(text or "").strip().split()).lower()
         if not normalized:
             return False
@@ -3967,10 +4242,22 @@ class ProjectLingEngine:
             (
                 "写一个",
                 "写个",
+                "写一版",
+                "写一份",
                 "做一个",
                 "做个",
+                "做一版",
+                "做一份",
+                "做一下",
                 "实现一个",
                 "实现个",
+                "弄个",
+                "弄一个",
+                "搞个",
+                "搞一个",
+                "整一个",
+                "来个",
+                "来一个",
                 "创建",
                 "生成",
                 "保存",
@@ -3981,10 +4268,16 @@ class ProjectLingEngine:
             normalized,
             (
                 "app",
+                "apk",
+                "android",
                 "css",
                 "html",
                 "javascript",
                 "script",
+                "安卓",
+                "应用",
+                "记事本",
+                "便签",
                 "网页",
                 "网页版",
                 "页面",
@@ -4000,6 +4293,66 @@ class ProjectLingEngine:
         return create_hits >= 1 and artifact_hits >= 1
 
     @classmethod
+    def _looks_like_bounded_single_step_local_request(cls, text: str) -> bool:
+        normalized = " ".join(str(text or "").strip().split()).lower()
+        if not normalized or len(normalized) > 100:
+            return False
+        disqualifiers = (
+            "修复",
+            "修改",
+            "创建",
+            "生成",
+            "实现",
+            "写一个",
+            "写个",
+            "做一个",
+            "做个",
+            "重构",
+            "排查",
+            "诊断",
+            "测试",
+            "构建",
+            "安装",
+            "全量",
+            "系统",
+            "项目",
+            "跨文件",
+            "多文件",
+            "计划",
+            "方案",
+            "评审",
+            "审查",
+            "优化",
+            "上下文",
+        )
+        if cls._request_keyword_hits(normalized, disqualifiers) >= 1:
+            return False
+        verb_hits = cls._request_keyword_hits(
+            normalized,
+            ("查看", "列出", "显示", "运行", "执行", "打印", "输出", "读取", "看一下", "看下"),
+        )
+        target_hits = cls._request_keyword_hits(
+            normalized,
+            (
+                "当前目录",
+                "当前路径",
+                "当前文件夹",
+                "目录",
+                "文件",
+                "pwd",
+                "ls",
+                "whoami",
+                "date",
+                "时间",
+                "前 5",
+                "前五",
+                "top 5",
+                "first 5",
+            ),
+        )
+        return verb_hits >= 1 and target_hits >= 1
+
+    @classmethod
     def _estimate_task_complexity(
         cls,
         text: str,
@@ -4011,6 +4364,8 @@ class ProjectLingEngine:
         normalized = " ".join(str(text or "").strip().split()).lower()
         if not normalized:
             return "simple", "empty request"
+        if cls._looks_like_code_only_request(text):
+            return "simple", "code-only direct reply request"
         explicit_simple = cls._request_keyword_hits(
             normalized,
             (
@@ -4084,8 +4439,21 @@ class ProjectLingEngine:
             return "complex", f"complex marker with long request, length={len(normalized)}"
         if analysis_like and execution_like and complex_hits >= 1:
             return "complex", "analysis + execution + complex marker"
+        android_project_like = any(marker in normalized for marker in ("apk", "android", "安卓", "应用", "记事本", "便签"))
+        if file_creation_like and android_project_like:
+            return "medium", f"android artifact creation, file_creation={file_creation_like}"
+        if (
+            execution_like
+            and not analysis_like
+            and not file_creation_like
+            and complex_hits == 0
+            and cls._looks_like_bounded_single_step_local_request(text)
+        ):
+            return "simple", "bounded single-step local request"
         if explicit_simple and len(normalized) <= 80 and complex_hits == 0 and medium_hits <= 2:
             return "simple", "explicit simple request"
+        if execution_like and not analysis_like and not file_creation_like and complex_hits == 0 and medium_hits == 0 and len(normalized) <= 64:
+            return "simple", "short direct execution request"
         if analysis_like or execution_like or file_creation_like or medium_hits >= 2:
             return "medium", f"task markers={medium_hits}, file_creation={file_creation_like}"
         return "simple", "no task-complexity marker"
@@ -4452,6 +4820,8 @@ class ProjectLingEngine:
     ) -> bool:
         if cls._looks_like_liaison_consult_request(text):
             return True
+        if cls._looks_like_simple_help_request(text):
+            return False
         decision_keywords = (
             "子agent",
             "子代理",
@@ -4479,9 +4849,14 @@ class ProjectLingEngine:
             "复杂",
             "关键",
             "重大",
+            "系统",
+            "排查",
+            "诊断",
         )
         hits = cls._request_keyword_hits(text, decision_keywords)
-        if hits >= 1:
+        if hits >= 2:
+            return True
+        if hits >= 1 and (analysis_like or execution_like):
             return True
         return analysis_like and execution_like
 
@@ -4555,9 +4930,10 @@ class ProjectLingEngine:
         liaison_delivery_message = user_message.strip() if explicit_send_mode else self._extract_liaison_delivery_message(user_message)
         liaison_delivery_request = False if speaker_handoff_request else bool(liaison_delivery_message or self._looks_like_liaison_delivery_request(user_message))
         strict_short_reply = self._is_strict_short_reply_request(user_message) and not liaison_delivery_request and not speaker_handoff_request
+        code_only_request = self._looks_like_code_only_request(user_message)
         analysis_like = self._looks_like_analysis_request(user_message)
-        execution_like = self._looks_like_execution_request(user_message, allow_tools=allow_tools)
-        file_creation_like = self._looks_like_file_creation_request(user_message)
+        execution_like = False if code_only_request else self._looks_like_execution_request(user_message, allow_tools=allow_tools)
+        file_creation_like = False if code_only_request else self._looks_like_file_creation_request(user_message)
         task_complexity, task_complexity_reason = self._estimate_task_complexity(
             user_message,
             analysis_like=analysis_like,
@@ -4565,8 +4941,10 @@ class ProjectLingEngine:
             file_creation_like=file_creation_like,
         )
         plan_mode = "plan" if task_complexity == "complex" else "todo"
-        plan_required = bool(allow_tools and task_complexity in {"medium", "complex"} and not strict_short_reply)
+        strict_short_style_only = strict_short_reply and not execution_like
+        plan_required = bool(allow_tools and task_complexity in {"medium", "complex"} and not strict_short_style_only)
         projectling_meta = self._looks_like_projectling_meta_request(user_message)
+        simple_help_request = self._looks_like_simple_help_request(user_message)
         liaison_worthy = self._looks_like_liaison_worthy_request(
             user_message,
             analysis_like=analysis_like,
@@ -4584,7 +4962,7 @@ class ProjectLingEngine:
             liaison_delivery_request = True
             liaison_delivery_action = "send"
         casual_chat = (
-            self._looks_like_casual_chat_request(user_message)
+            (self._looks_like_casual_chat_request(user_message) or simple_help_request)
             and not analysis_like
             and not execution_like
             and not liaison_worthy
@@ -4592,7 +4970,7 @@ class ProjectLingEngine:
         )
         liaison_recommended = (
             allow_tools
-            and not strict_short_reply
+            and not strict_short_style_only
             and not casual_chat
             and not projectling_meta
             and liaison_worthy
@@ -4615,7 +4993,7 @@ class ProjectLingEngine:
         elif speaker_handoff_request:
             route_category = "speaker_handoff"
             route_reason = f"explicit speaker handoff request to {speaker_handoff_target}"
-            request_model = executor_model
+            request_model = planner_model
             request_thinking_enabled = self.client._thinking_enabled_for_request(configured_model=request_model)
             request_temperature = 0.1
         elif liaison_delivery_request:
@@ -4624,12 +5002,21 @@ class ProjectLingEngine:
             request_model = planner_model
             request_thinking_enabled = self.client._thinking_enabled_for_request(configured_model=request_model)
             request_temperature = 0.1
-        elif execution_like:
-            route_category = "execution_or_format"
-            route_reason = f"execution / format request starts with main role model {planner_model}, then executor {executor_model}"
+        elif code_only_request:
+            route_category = "code_generation"
+            route_reason = f"code-only request uses main role model {planner_model} without tools or X-Link"
             request_model = planner_model
             request_thinking_enabled = self.client._thinking_enabled_for_request(configured_model=request_model)
-            request_max_tokens = 32 if strict_short_reply else None
+            request_temperature = 0.0
+        elif execution_like:
+            route_category = "execution_or_format"
+            if task_complexity == "simple":
+                route_reason = f"simple execution request uses main role model {planner_model} without X-Link plan gate"
+            else:
+                route_reason = f"execution / format request uses main role model {planner_model}; plan gate may hand off to executor {executor_model}"
+            request_model = planner_model
+            request_thinking_enabled = self.client._thinking_enabled_for_request(configured_model=request_model)
+            request_max_tokens = None
             request_temperature = 0.0
             if strict_short_reply:
                 force_stream = False
@@ -4638,7 +5025,7 @@ class ProjectLingEngine:
             route_reason = "user requested strict short reply"
             request_model = planner_model
             request_thinking_enabled = self.client._thinking_enabled_for_request(configured_model=request_model)
-            request_max_tokens = 16
+            request_max_tokens = None if request_thinking_enabled else 16
             request_temperature = 0.0
             force_stream = False
         elif projectling_meta:
@@ -4656,15 +5043,15 @@ class ProjectLingEngine:
             request_temperature = 0.2
         elif analysis_like:
             route_category = "analysis"
-            route_reason = f"analysis-like request uses {planner_model}"
+            route_reason = f"analysis-like request uses main role model {planner_model}"
             if liaison_recommended:
-                route_reason = f"analysis-like request uses {planner_model} with liaison tools"
+                route_reason = f"analysis-like request uses main role model {planner_model} with liaison tools"
                 request_model = planner_model
                 request_thinking_enabled = self.client._thinking_enabled_for_request(configured_model=request_model)
                 request_temperature = 0.1
         elif liaison_recommended:
             route_category = "liaison_consult"
-            route_reason = f"liaison-worthy request uses {planner_model} with liaison tools"
+            route_reason = f"liaison-worthy request uses main role model {planner_model} with liaison tools"
             request_model = planner_model
             request_thinking_enabled = self.client._thinking_enabled_for_request(configured_model=request_model)
             request_temperature = 0.1
@@ -4676,7 +5063,7 @@ class ProjectLingEngine:
             tool_scope = "full"
             tools_enabled = True
             tools_reason = "context tool for explicit budget request"
-        elif strict_short_reply:
+        elif strict_short_style_only:
             tool_scope = "none"
             tools_enabled = False
             tools_reason = "disabled for strict short reply"
@@ -4688,6 +5075,14 @@ class ProjectLingEngine:
             tool_scope = "none"
             tools_enabled = False
             tools_reason = "disabled for casual chat; main model still decides next context"
+        elif route_category == "code_generation":
+            tool_scope = "none"
+            tools_enabled = False
+            tools_reason = "disabled for code-only direct reply"
+        elif execution_like and task_complexity == "simple":
+            tool_scope = "full"
+            tools_enabled = True
+            tools_reason = "simple direct task handled by main role with minimal tools and no X-Link plan gate"
         elif route_category == "speaker_handoff" and allow_tools:
             tool_scope = "persona_link"
             tools_enabled = True
@@ -4718,6 +5113,8 @@ class ProjectLingEngine:
             "force_stream": force_stream,
             "strict_short_reply": strict_short_reply,
             "casual_chat": casual_chat,
+            "simple_help_request": simple_help_request,
+            "code_only_request": code_only_request,
             "analysis_like": analysis_like,
             "execution_like": execution_like,
             "file_creation_like": file_creation_like,
@@ -4796,7 +5193,11 @@ class ProjectLingEngine:
             主角色 / Planner：{planner_label}。
             你正在以执行位身份落实计划、调用工具、验证结果和产出最终可见回复；不要冒充主角色，也不要声称 Planner 已经执行。
             如果用户要求创建网页、游戏、脚本、配置或项目文件，先用 update_plan.action=start 建立可见计划，再用 apply_patch.operation=write + target_file + content 写入实际文件；不要把完整 HTML/CSS/JS/源码作为正文直接吐给用户，除非用户明确要求只看代码、不落盘。
+            apply_patch 的 target_file 必须是相对当前 cwd 的路径；需要子目录时写 NotepadApp/AndroidManifest.xml 这类相对路径，不要写 ~/NotepadApp、$HOME、/data/... 或 cd 到别处后写。
+            apply_patch 会自动创建父目录；不要先用 mkdir/touch/cat/tee/heredoc/python 写文件。command 只用于读环境、运行构建、测试和 adb 安装。
             局部改动优先用 apply_patch.operation=replace + find + replace；多个局部改动用 edits[]。只有精确上下文补丁更可靠时才手写 diff。
+            工具失败后先读失败原因并最小修复；不要把失败步骤标记 done，不要用旧产物、旧 APK 或绕过构建结果来假装完成。若安装因签名冲突失败，可卸载重装，但必须在汇报中说明原因。
+            ADB input、am start、pm list 只能证明安装/启动烟测；不能替代真实功能验收。无法自动验证 UI 功能时，说清“未做人工功能验收”。
             Planner 只负责方向和复审；如果事实、工具结果或执行路径与计划冲突，先 update_plan，再继续或用 link.action=blocked 交回判断。
             中等以上任务必须维护 update_plan；每完成一步、改变路径、工具失败或发现阻塞，都更新一次，让主角色复审后再推进。
             完成后尽量用 link.action=done target=planner 汇报简要执行结果；无法完成则用 link.action=blocked。
@@ -4814,6 +5215,7 @@ class ProjectLingEngine:
             - 只输出用户要求的最终答案本身。
             - 不解释、不追问、不延伸闲聊、不角色扮演、不补充格式外内容。
             - 如果用户要求一个字、一个词、固定格式或一行结果，精确照做。
+            - 如果本轮已启用工具且用户明确要求执行命令、读写文件或查证事实，照常调用工具；严格短答只限制最终回复长度，不禁止工具。
             """
         )
 
@@ -4858,7 +5260,10 @@ class ProjectLingEngine:
             任务服从协议：
             - 角色气质只能服务当前任务，不能覆盖用户的明确输出约束。
             - 用户要求“只回复”“仅输出”“不要解释”“一个字/一句话/固定格式”时必须严格照做。
+            - 严格短答只约束最终回复，不会自动禁用工具；如果用户明确要求执行 command、terminal、apply_patch 或查证事实，仍然先做任务本身。
             - 编程、排障、测试、文件修改或工具任务优先给可执行结果和必要判断；角色感只能轻量存在。
+            - 简单、直白、微小的问答和单步任务直接由主角色处理，不要默认升级到 X-Link。
+            - 单步本地检查（例如 `pwd`、`ls`、`date`、`whoami`、查看当前目录或列出少量文件）优先由主角色直接处理，不要为了这种小任务进入计划门槛。
             - reasoning 可以按任务需要进行技术推演，包括代码、补丁、JSON 或命令片段；最终回复仍应收束为用户真正需要的内容。
             """
         )
@@ -4877,6 +5282,8 @@ class ProjectLingEngine:
             X-Link 协作模式：
             - 当前模式：{mode}（{mode_summary}）。
             - 规划位模型：{planner_model}；执行位模型：{executor_model}。
+            - 简单、直白、微小的问答和单步小任务直接由主角色处理，不要默认送进 X-Link。
+            - 单步本地检查和短小读命令（例如 `pwd`、`ls`、`date`、`查看当前目录`、`列出前 5 个文件`）应保持在主角色侧，只有跨文件修复、重构、系统排障或复杂权衡才进入规划位。
             - 规划位只给目标、方向、风险、步骤和上下文预算，不直接输出大段代码或执行工具。
             - 执行位按规划落实操作、调用工具、产出结果，并用 link.action=done/blocked/review 形成可审查回报。
             - update_plan 是共享计划工具：todo 处理中等复杂任务，plan 处理复杂分阶段任务；每完成一步都要更新一次，让主角色复审后再继续。
@@ -4901,11 +5308,12 @@ class ProjectLingEngine:
             f"- 当前辅导位：{liaison_label}。",
             "- 主角色负责默认对外回复和执行；辅导位不抢答、不把普通聊天写成多人轮流对话。",
             "- 用户想听辅导位直接说话、让辅导位接替或切换说话者时，调用 `link`，action=switch。",
-            "- 需要计划评审、辅助任务、重大决策、代码修改、上下文治理、工具结果矛盾、用户意图不清、风险/可用性取舍时，调用 `link`，action=liaison。",
+            "- 需要计划评审、辅助任务、重大决策、复杂代码修改、上下文治理、工具结果矛盾、风险/可用性取舍时，调用 `link`，action=liaison。",
             "- 用户明确要给辅导位发普通消息时，调用 `link`，action=send；主动联系/询问情况时 action=contact；明确委派任务时 action=mission。",
             "- 用户说“问问她/他/它”“你没问”“用工具问问”“让辅导位回答”这类指代式请求，也要先走 `link`，不要当成普通聊天。",
-            "- 调用格式：使用工具 `link`，填写 action、message/task/objective、brief；liaison/contact 的 rounds 可为 1-3。persona_link 仅作兼容后备。",
-            "- 不要在正文里写“我去问辅导位”；如果要问，直接发起工具调用。普通寒暄不要转给辅导位。",
+            "- 用户意图不清时，先由主角色追问澄清或给出最小判断，不要直接把任务交给执行位；必要时可用 `link.action=ask` 或 `link.action=liaison` 先问建议，不要默认执行。",
+            "- 调用格式：使用工具 `link`，填写 action、message/task/objective、brief；ask 用于询问建议或澄清，liaison/contact 的 rounds 可为 1-3。persona_link 仅作兼容后备。",
+            "- 不要在正文里写“我去问辅导位”；如果要问，直接发起工具调用。普通寒暄和简单直答不要转给辅导位。",
             "- 辅导建议要体现在更稳的判断、更少遗漏和更清楚的下一步，而不是输出两个角色轮流说话。",
         ]
         if tools_enabled and liaison_delivery_request:
@@ -4935,9 +5343,11 @@ class ProjectLingEngine:
                 - 优先调用 `link` 做角色联动；`persona_link` 仅作旧兼容。
                 - action=switch：切换当前可见说话者。用户要求辅导位直接说话、接替对话或切到辅导位时 target=liaison；用户要求主角色回来时 target=main。
                 - action=liaison：计划审查、辅助推理、风险补盲、关键决策预审。传入 message，不执行任务，只思考和给建议。
+                - action=ask：询问建议、澄清歧义或先拿一个短建议，不把任务默认交给执行位。
                 - action=mission：记录明确委派任务。传入 task 和 objective；当前版本返回任务是否入队，不伪造后台完成。
                 - action=send：主角色给辅导位发一句普通消息。
                 - action=contact：主角色主动联系辅导位对话或询问情况。
+                - 简单问答、直白解释和单步小任务直接由主角色回答，不要为了它们进入 X-Link。
                 - 不要调用 command、terminal、apply_patch 或 web_search；如果需要真实读文件、执行命令或修改代码，先说明需要用户确认把任务升级为执行任务。
                 - 拿到工具结果后直接综合成简短结论，不要展示 INPUT/OUTPUT/FACT 之类内部标签。
                 """
@@ -4948,10 +5358,10 @@ class ProjectLingEngine:
                 本轮工具域：complexity plan gate。
                 - 当前只暴露 link、update_plan；这是由任务复杂度触发，不由文件类型触发。
                 - 第一轮必须调用 update_plan.action=start。中等复杂度用 mode=todo；高复杂度/多阶段任务用 mode=plan（蓝图模式）。
-                - 计划应围绕真实任务拆解，不套固定模板；简单任务不会进入这个门槛。
+                - 计划应围绕真实任务拆解，不套固定模板；简单问答、单步小任务和直接解释不会进入这个门槛。
                 - update_plan.start 会触发主角色 Planner 复审；复审后系统恢复完整工具域，执行位再继续读写文件、运行命令或调用其它工具。
                 - 执行过程中每完成一步、发现阻塞、改变路径或工具结果推翻计划，都继续 update_plan，让主角色介入纠偏。
-                - link 只用于 blocked/done/交接，不要用 link 代替计划。
+                - link 只用于 blocked/done/交接或短建议询问，不要用 link 代替计划。
                 """
             )
         return _prompt_block(
@@ -4972,8 +5382,12 @@ class ProjectLingEngine:
 
             工具使用规则：
             - 如果确实需要读取环境、执行命令或改文件，必须直接发起 tool call。
+            - 严格短答只限制最终回复字数，不会自动屏蔽工具；用户明确要求执行 command、terminal 或 apply_patch 时仍要照常做事。
             - 用户要求“写一个/做一个/实现一个”网页、游戏、脚本、配置或项目文件时，默认是在当前 cwd 创建可运行文件；用 apply_patch.operation=write 落盘，再用必要命令验证。最终只报告文件路径、运行方式和关键结果，不要粘贴整份源码。
-            - DeepSeek 使用 apply_patch 时，把它当成表单工具：目标文件填 target_file，整文件填 content，局部替换填 find/replace。不要把源码塞进普通正文，也不要退回 cat/tee/heredoc/python 写文件。
+            - DeepSeek 使用 apply_patch 时，把它当成表单工具：目标文件填 target_file，整文件填 content，局部替换填 find/replace。target_file 必须是相对当前 cwd 的路径；需要子目录就写 app/src/main/...，不要写 ~/、$HOME 或绝对路径。不要把源码塞进普通正文，也不要退回 cat/tee/heredoc/python 写文件。
+            - apply_patch 会自动创建父目录；创建文件前不需要 mkdir/touch。command 只用于检查、构建、测试和 adb，不用于写源文件。
+            - 工具返回 error/blocked/timeout 时，先解释原因并修复或交回，不要把失败步骤标记为完成；不要用旧产物或另一个安装命令掩盖构建失败。
+            - ADB input/启动失败不能作为功能验证通过；如果只能做到包安装/启动烟测，最终回复必须这样写。
             - 中等以上复杂任务先用 update_plan 建立 todo/plan；每完成一个步骤、发现阻塞或改变方案，都先 update_plan，再继续工具执行。
             - 工具调用尽量顺手填写 context_percent / context_level / context_turns；短检查约 33-40%，读文件/定位约 40-66%，改代码和跨文件对账约 66-85%。
             - 不要为了“保住上下文”默认每次 100%；降低可见度不会删除记忆。
@@ -5040,10 +5454,13 @@ class ProjectLingEngine:
         liaison_delivery_message: str = "",
         liaison_delivery_action: str = "",
         tool_scope: str = "full",
-    ) -> str:
+        ) -> str:
         bundle = persona_bundle or resolve_persona_bundle(self.config, role=role, seed=role_seed)
         if strict_short_reply:
-            return self._strict_short_reply_prompt()
+            sections = [self._strict_short_reply_prompt()]
+            if tools_enabled:
+                sections.append(self._tool_instruction_prompt(tool_scope=tool_scope))
+            return self._join_prompt_sections(sections)
         if bundle.source == "executor_handoff":
             sections = [
                 self.prompt_bundle.main_prompt.strip(),
@@ -6234,6 +6651,14 @@ class ProjectLingEngine:
                     if on_stream_event is not None:
                         on_stream_event("tool_result", parsed_result)
                     conversation_messages.append(tool_result)
+                    failure_guidance = self._tool_failure_guidance(parsed_result)
+                    if failure_guidance:
+                        conversation_messages.append(
+                            {
+                                "role": "system",
+                                "content": failure_guidance,
+                            }
+                        )
                     if apply_persona_handoff_result(parsed_result):
                         tools_enabled = False
                         tool_scope = "none"

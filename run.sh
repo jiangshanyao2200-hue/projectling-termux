@@ -79,6 +79,33 @@ projectling_clean_python_caches() {
   find "$ROOT_DIR" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
 }
 
+projectling_truthy() {
+  case "${1:-}" in
+    1|true|True|TRUE|yes|Yes|YES|on|On|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+projectling_pending_command_active() {
+  local path expires now
+  path="${PROJECTLING_PENDING_COMMAND_FILE:-$ROOT_DIR/config/pending-command.json}"
+  [ -f "$path" ] || return 1
+  expires="$(sed -n 's/.*"expires_at"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p' "$path" 2>/dev/null | head -n 1)"
+  if [ -n "$expires" ]; then
+    now="$(projectling_now_seconds)"
+    case "$now" in ''|*[!0-9]*) now=0 ;; esac
+    if [ "$now" -ge "$expires" ]; then
+      rm -f "$path" 2>/dev/null || true
+      return 1
+    fi
+  fi
+  return 0
+}
+
 projectling_log_housekeeping_due() {
   local interval now last
   interval="${AITERMUX_LOG_CLEAN_INTERVAL_SECONDS:-3600}"
@@ -132,7 +159,9 @@ projectling_log_housekeeping() {
     \( -name '.tmp.*' -o -name '*.tmp' -o -name '*.bak' \) -delete 2>/dev/null || true
   projectling_find_delete_temp_archives "$AIDEBUG_DIR/tmp" "${AITERMUX_TMP_ARCHIVE_KEEP_DAYS:-1}" || true
   projectling_delete_empty_dirs "$AIDEBUG_DIR/tmp" || true
-  projectling_clean_python_caches || true
+  if projectling_truthy "${AITERMUX_CLEAN_PYTHON_CACHE:-0}"; then
+    projectling_clean_python_caches || true
+  fi
 
   projectling_mark_log_housekeeping
 }
@@ -146,6 +175,38 @@ projectling_debug_log() {
   printf '%s %s\n' "$ts" "$msg" >>"$PROJECTLING_AIDEBUG_LOG" 2>/dev/null || true
 }
 
+projectling_single_instance_tty_key() {
+  local tty_path key
+  tty_path="$(tty 2>/dev/null || true)"
+  case "$tty_path" in
+    /dev/*)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  key="$(printf '%s' "$tty_path" | tr -c 'A-Za-z0-9_.-' '_')"
+  [ -n "$key" ] || return 1
+  printf '%s' "$key"
+}
+
+projectling_prepare_auto_single_instance() {
+  local key
+  case "${1:-}" in
+    chat|shell-dispatch)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  if [ ! -t 0 ] && [ ! -t 1 ]; then
+    return 1
+  fi
+  key="$(projectling_single_instance_tty_key)" || return 1
+  PROJECTLING_PID_FILE="$PROJECTLING_RUNTIME_DIR/projectling.$key.pid"
+  return 0
+}
+
 projectling_single_instance_enabled() {
   case "${PROJECTLING_SINGLE_INSTANCE:-auto}" in
     0|false|False|FALSE|no|No|NO|off|Off|OFF)
@@ -156,14 +217,7 @@ projectling_single_instance_enabled() {
       ;;
   esac
 
-  case "${1:-}" in
-    chat|shell-dispatch)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+  projectling_prepare_auto_single_instance "${1:-}"
 }
 
 projectling_pid_command() {
@@ -255,6 +309,11 @@ projectling_signal_exit() {
   exit "$rc"
 }
 
+if [ "${1:-}" = "has-pending-command" ]; then
+  projectling_pending_command_active
+  exit "$?"
+fi
+
 if command -v python >/dev/null 2>&1; then
   PYTHON_BIN="$(command -v python)"
 elif command -v python3 >/dev/null 2>&1; then
@@ -267,6 +326,9 @@ fi
 
 if [ "${1:-}" = "cleanup" ]; then
   AITERMUX_LOG_CLEAN_INTERVAL_SECONDS=0 AITERMUX_TMP_ARCHIVE_KEEP_DAYS=0 projectling_log_housekeeping || true
+  if [ "${2:-}" = "--deep" ] || projectling_truthy "${AITERMUX_CLEAN_PYTHON_CACHE:-0}"; then
+    projectling_clean_python_caches || true
+  fi
   projectling_debug_log "runner_cleanup args=$*"
   echo "[projectling] cleanup completed."
   exit 0

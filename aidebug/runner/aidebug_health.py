@@ -361,35 +361,46 @@ def check_route_alignment() -> dict[str, Any]:
         engine = ProjectLingEngine(load_config())  # type: ignore[operator]
     except Exception as exc:
         return item("route_alignment", 0, "fail", [f"engine_init={exc}"], "修复 projectling 初始化。")
+    config = load_config() if load_config else None
+    collab_mode = str(getattr(config, "collab_mode", "") or "standard")
+    planner_model = engine._planner_model_for_mode(collab_mode)
+    planner_thinking = "reasoner" in planner_model.lower()
 
     scenarios = [
         (
             "strict_short",
             "只回复：OK。不要解释。",
             "strict_short_reply",
-            "deepseek-chat",
-            False,
+            planner_model,
+            planner_thinking,
         ),
         (
             "execution",
             "请使用 command 运行 pwd，然后只输出当前路径。",
             "execution_or_format",
-            "deepseek-chat",
-            False,
+            planner_model,
+            planner_thinking,
         ),
         (
             "casual_chat",
             "你好呀",
             "casual_chat",
-            "deepseek-chat",
-            False,
+            planner_model,
+            planner_thinking,
         ),
         (
             "analysis",
             "综合判断这个项目如何优化，列计划。",
             "analysis",
-            str(load_config().model if load_config else "").strip() or "deepseek-reasoner",
-            None,
+            planner_model,
+            planner_thinking,
+        ),
+        (
+            "code_only",
+            "写一个 Python 函数 is_even(n)，只给代码，不要创建文件。",
+            "code_generation",
+            planner_model,
+            planner_thinking,
         ),
     ]
 
@@ -415,6 +426,72 @@ def check_route_alignment() -> dict[str, Any]:
         status_from_score(score),
         evidence,
         "修正 projectling 路由决策或短答提示策略。" if score < 85 else "",
+    )
+
+
+def check_runner_concurrency() -> dict[str, Any]:
+    sandbox = HEALTH_SANDBOX_DIR / "runner-concurrency"
+    fake_bin = sandbox / "bin"
+    runtime_dir = sandbox / "runtime"
+    fake_bin.mkdir(parents=True, exist_ok=True)
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    fake_python = fake_bin / "python"
+    try:
+        fake_python.write_text("#!/usr/bin/env bash\nsleep 0.75\nexit 0\n", encoding="utf-8")
+        fake_python.chmod(0o755)
+    except OSError as exc:
+        return item("runner_concurrency", 0, "fail", [f"setup={exc}"], "检查 aidebug tmp 写入权限。")
+
+    script = "\n".join(
+        [
+            "set -uo pipefail",
+            "export PATH=\"${FAKE_BIN}:$PATH\"",
+            "export AITERMUX_PROJECTLING_RUNTIME_DIR=\"${RUNTIME_DIR}\"",
+            "export PROJECTLING_SINGLE_INSTANCE=auto",
+            "\"${PROJECTLING_RUN}\" shell-dispatch --mode chat --cwd . --raw \"health-pong\" --dry-run >/dev/null 2>&1 &",
+            "pid1=$!",
+            "sleep 0.15",
+            "\"${PROJECTLING_RUN}\" shell-dispatch --mode chat --cwd . --raw \"health-ping\" --dry-run >/dev/null 2>&1 &",
+            "pid2=$!",
+            "wait \"$pid1\"; rc1=$?",
+            "wait \"$pid2\"; rc2=$?",
+            "printf 'rc1=%s rc2=%s\\n' \"$rc1\" \"$rc2\"",
+            "test \"$rc1\" -eq 0 && test \"$rc2\" -eq 0",
+        ]
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "AITERMUX_HOME": str(AITERMUX_HOME),
+            "AITERMUX_AIDEBUG_DIR": str(AIDEBUG_DIR),
+            "FAKE_BIN": str(fake_bin),
+            "RUNTIME_DIR": str(runtime_dir),
+            "PROJECTLING_RUN": str(PROJECTLING_RUN),
+        }
+    )
+    try:
+        completed = subprocess.run(
+            ["bash", "-c", script],
+            cwd=str(PROJECTLING_DIR),
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return item("runner_concurrency", 0, "fail", ["timeout after 20s"], "检查 run.sh 非 TTY 并发是否卡住。")
+    evidence = [
+        f"rc={completed.returncode}",
+        (completed.stdout or completed.stderr or "").strip()[:240] or "no output",
+    ]
+    ok = completed.returncode == 0
+    return item(
+        "runner_concurrency",
+        100 if ok else 30,
+        status_from_score(100 if ok else 30),
+        evidence,
+        "修复 run.sh auto single-instance，非 TTY chat/shell-dispatch 不应互相 TERM。" if not ok else "",
     )
 
 
@@ -461,14 +538,14 @@ def check_command_guard() -> dict[str, Any]:
         f"confirm={confirm}",
         f"reason={payload.get('reason')}",
     ]
-    ok = status == "pending_confirmation" and confirm == "yes"
+    ok = status == "blocked" or (status == "pending_confirmation" and confirm == "yes")
     score = 100 if ok else 30
     return item(
         "command_guard",
         score,
         status_from_score(score),
         evidence,
-        "修复 command 高危门禁。" if not ok else "",
+        "修复 command 高危门禁：高危命令必须 blocked 或进入明确确认。" if not ok else "",
     )
 
 
@@ -692,6 +769,7 @@ def build_health() -> dict[str, Any]:
         check_projectling_doctor(),
         check_tool_schema(),
         check_route_alignment(),
+        check_runner_concurrency(),
         check_persona_split(),
         check_command_guard(),
         check_context_budget_runtime(),

@@ -1,6 +1,7 @@
 if [[ -n "${ZSH_VERSION:-}" ]]; then
   typeset -g PROJECTLING_HOME="${AITERMUX_HOME:-$HOME/AItermux}/projectling"
   typeset -g PROJECTLING_RUNNER="$PROJECTLING_HOME/run.sh"
+  typeset -g PROJECTLING_PENDING_COMMAND_FILE="${PROJECTLING_PENDING_COMMAND_FILE:-$PROJECTLING_HOME/config/pending-command.json}"
   typeset -g PROJECTLING_DISPATCH_KIND=""
   typeset -g PROJECTLING_TTY_DEV="/dev/tty"
   typeset -g PROJECTLING_MAX_INLINE_CHARS="${PROJECTLING_MAX_INLINE_CHARS:-4000}"
@@ -82,6 +83,7 @@ if [[ -n "${ZSH_VERSION:-}" ]]; then
 
   projectling_has_pending_command() {
     [[ -x "$PROJECTLING_RUNNER" ]] || return 1
+    [[ -f "$PROJECTLING_PENDING_COMMAND_FILE" ]] || return 1
     "$PROJECTLING_RUNNER" has-pending-command >/dev/null 2>&1
   }
 
@@ -170,18 +172,21 @@ if [[ -n "${ZSH_VERSION:-}" ]]; then
         ;;
     esac
 
-    if projectling_has_pending_command; then
-      case "$lowered" in
-        y|yes)
+    case "$lowered" in
+      y|yes|n|no)
+        projectling_has_pending_command || return 1
+        case "$lowered" in
+          y|yes)
           printf '%s' "confirm:y"
           return 0
           ;;
-        n|no)
+          n|no)
           printf '%s' "deny"
           return 0
           ;;
-      esac
-    fi
+        esac
+        ;;
+    esac
 
     return 1
   }

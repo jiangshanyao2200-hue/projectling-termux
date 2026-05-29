@@ -26,7 +26,8 @@ Commands:
 - `aidebug motd-zshrc-smoke` - run non-TTY motd, zshrc hook, and PTY launcher smoke tests
 - `aidebug projectling-auto` - run the Project Ling toolchain regression loop
 - `aidebug health` - score each debug/runtime chain and write `notes/aidebug-health.md`
-- `../run.sh cleanup` - force runtime housekeeping for ProjectLing caches, temp archives, and bounded logs
+- `../run.sh cleanup` - force runtime housekeeping for ProjectLing temp archives and bounded logs
+- `../run.sh cleanup --deep` - additionally remove Python bytecode caches when storage cleanup matters more than startup speed
 
 Retention:
 - Keep recent logs and state for debugging.

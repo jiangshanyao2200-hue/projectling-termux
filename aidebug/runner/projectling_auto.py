@@ -393,10 +393,6 @@ def smoke_web_search_validation(registry: ToolRegistry, ctx: ToolContext) -> dic
 
 def smoke_terminal(registry: ToolRegistry, ctx: ToolContext, round_id: int) -> dict[str, Any]:
     session_name = f"{AUTO_SESSION_PREFIX}{os.getpid()}-{round_id}"
-    start_command = (
-        f"cd {shlex_quote(str(PROJECTLING_DIR))} && "
-        f"./run.sh doctor && printf 'AIDEBUG_ROUND_{round_id}_START\\n'"
-    )
     start = tool_call(
         registry,
         ctx,
@@ -405,10 +401,20 @@ def smoke_terminal(registry: ToolRegistry, ctx: ToolContext, round_id: int) -> d
             "action": "start",
             "session_name": session_name,
             "cwd": str(PROJECTLING_DIR),
-            "command": start_command,
         },
     )
     time.sleep(1.0)
+    start_send = tool_call(
+        registry,
+        ctx,
+        "terminal",
+        {
+            "action": "send",
+            "session_name": session_name,
+            "command": f"printf 'AIDEBUG_ROUND_{round_id}_START\\n'",
+        },
+    )
+    time.sleep(0.8)
     send = tool_call(
         registry,
         ctx,
@@ -436,6 +442,7 @@ def smoke_terminal(registry: ToolRegistry, ctx: ToolContext, round_id: int) -> d
         "tool": "terminal",
         "session_name": session_name,
         "start": start,
+        "start_send": start_send,
         "send": send,
         "info": info,
         "close": close,

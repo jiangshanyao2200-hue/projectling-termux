@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-05-23T19:00:34Z",
+  "updated_at": "2026-05-24T07:39:19Z",
   "tools": {
     "aidebug": {
       "expanded": true,
@@ -11,13 +11,13 @@
     "apply_patch": {
       "expanded": true,
       "summary": "Create or edit files in the current working directory",
-      "detail": "Create or edit files in the current working directory. DeepSeek should prefer the structured form: operation + target_file + content/find/replace, or edits[] for multiple small operations. Use operation=write for full-file create/replace, operation=replace for exact text replacement, append/prepend/insert_before/insert_after for simple insertions, and delete for text or file deletion. Unified diff and *** Begin Patch remain available for advanced exact-context patches. Use this for code edits instead of shell heredocs, python writes, sed -i, tee, or ad-hoc file rewriting.",
+      "detail": "Create or edit files in the current working directory. DeepSeek should prefer the structured form: operation + target_file + content/find/replace, or edits[] for multiple small operations. target_file must be relative to the current cwd; do not use ~/,$HOME, or absolute paths. Use operation=write for full-file create/replace, operation=replace for exact text replacement, append/prepend/insert_before/insert_after for simple insertions, and delete for text or file deletion. Unified diff and *** Begin Patch remain available for advanced exact-context patches. Use this for code edits instead of shell heredocs, python writes, sed -i, tee, or ad-hoc file rewriting.",
       "pinned": false
     },
     "command": {
       "expanded": true,
       "summary": "Run one local shell command in the current Termux working directory",
-      "detail": "Run one local shell command in the current Termux working directory. Supports shell commands, adb TCP workflows, and termux-api commands. Commands usually run immediately and return bounded stdout/stderr. Clearly catastrophic commands create a pending confirmation and require the human to type yes before execution; blocked commands are not executed.",
+      "detail": "Run one local shell command in the current Termux working directory. Supports shell commands, adb TCP workflows, and termux-api commands. Use command for inspection, build, tests, adb install/verify, and other runtime checks. Do not use it to create, move, copy, delete, or rewrite project files; apply_patch handles file creation and automatically creates parent directories. Clearly catastrophic commands create a pending confirmation and require the human to type yes before execution; blocked commands are not executed.",
       "pinned": false
     },
     "context": {

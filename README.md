@@ -45,6 +45,7 @@ cp config/example/env config/env
 ./run.sh doctor
 ./run.sh selftest
 ./run.sh cleanup
+./run.sh cleanup --deep
 ```
 
 配置 DeepSeek：
@@ -69,7 +70,8 @@ DEEPSEEK_API_KEY=你的_key
 - `core.py` 只放终端 UI、设置、工具回执和 CLI 分发。
 - `projectling.py` 只放配置/prompt、角色、DeepSeek transport、协作路由和工具循环。
 - `tooling.py` 只放工具实现、上下文 entries、记忆、计划、`apply_patch`、terminal/aidebug/web_search/link。
-- `run.sh cleanup` 可清理 Python 缓存、旧日志、临时包和空临时目录，不删除配置、上下文或记忆库。
+- `run.sh cleanup` 可清理旧日志、临时包和空临时目录，不删除配置、上下文、记忆库或 Python bytecode；需要强制清掉 bytecode 时用 `run.sh cleanup --deep`。
+- zsh 热路径不应启动 Python；pending 确认优先走 `run.sh has-pending-command` 的 shell 快速路径。
 
 ## 仓库边界
 
